@@ -1,0 +1,246 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Validate tag matches Cargo.toml version and is on main
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from Cargo.toml
+        id: version
+        run: |
+          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
+
+      - name: Validate tag matches version
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          EXPECTED_TAG="v$VERSION"
+          if [ "$TAG" != "$EXPECTED_TAG" ]; then
+            echo "Error: Tag '$TAG' does not match Cargo.toml version '$VERSION'"
+            echo "Expected tag: $EXPECTED_TAG"
+            exit 1
+          fi
+
+      - name: Verify release is from main branch
+        run: |
+          git fetch origin main
+          TAG_SHA=$(git rev-parse HEAD)
+          if ! git merge-base --is-ancestor $TAG_SHA origin/main; then
+            echo "Error: Release tags must be created from commits on the main branch"
+            echo "Tag SHA: $TAG_SHA"
+            echo "Please merge your changes to main first, then create the release tag"
+            exit 1
+          fi
+          echo "Verified: Tag points to a commit on main branch"
+
+  # Run full test suite before release
+  test:
+    name: Run Tests
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Run Clippy
+        run: cargo clippy -- -D warnings
+
+  # Build binaries for all platforms
+  build-binaries:
+    name: Build ${{ matrix.target }}
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: fossil-mcp-linux-x86_64
+
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact_name: fossil-mcp-linux-x86_64-musl
+
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: fossil-mcp-linux-aarch64
+
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: fossil-mcp-macos-x86_64
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: fossil-mcp-macos-aarch64
+
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: fossil-mcp-windows-x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build
+        shell: bash
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && 'aarch64-linux-gnu-gcc' || '' }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Create archive (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/fossil-mcp dist/
+          cd dist
+          tar czf ../${{ matrix.artifact_name }}-${VERSION}.tar.gz fossil-mcp
+
+      - name: Create archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $VERSION = "${{ needs.validate.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item target/${{ matrix.target }}/release/fossil-mcp.exe dist/
+          Compress-Archive -Path dist/fossil-mcp.exe -DestinationPath ${{ matrix.artifact_name }}-${VERSION}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            *.tar.gz
+            *.zip
+          retention-days: 7
+
+  # Create GitHub Release
+  create-release:
+    name: Create GitHub Release
+    needs: [validate, test, build-binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Organize release files
+        run: |
+          mkdir -p release-files
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release-files/ \;
+          echo "=== Release files ==="
+          ls -lh release-files/
+
+      - name: Generate release notes
+        run: |
+          cat << 'EOF' > release-notes.md
+          ## fossil-mcp v${{ needs.validate.outputs.version }}
+
+          The code quality toolkit for the vibe coding era.
+
+          ### Installation
+
+          #### From crates.io
+          ```bash
+          cargo install fossil-mcp
+          ```
+
+          #### Pre-built Binaries
+          Download the appropriate archive for your platform from the assets below, extract, and place `fossil-mcp` in your PATH.
+
+          ### Platform Support
+          | Platform | Architecture | Archive |
+          |----------|-------------|---------|
+          | Linux | x86_64 (glibc) | `fossil-mcp-linux-x86_64-*.tar.gz` |
+          | Linux | x86_64 (musl) | `fossil-mcp-linux-x86_64-musl-*.tar.gz` |
+          | Linux | ARM64 | `fossil-mcp-linux-aarch64-*.tar.gz` |
+          | macOS | x86_64 (Intel) | `fossil-mcp-macos-x86_64-*.tar.gz` |
+          | macOS | ARM64 (Apple Silicon) | `fossil-mcp-macos-aarch64-*.tar.gz` |
+          | Windows | x86_64 | `fossil-mcp-windows-x86_64-*.zip` |
+          EOF
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: fossil-mcp v${{ needs.validate.outputs.version }}
+          body_path: release-notes.md
+          files: release-files/*
+          draft: false
+          prerelease: ${{ contains(needs.validate.outputs.version, '-') }}
+          fail_on_unmatched_files: false
+
+  # Publish to crates.io (only for stable releases, not pre-releases)
+  publish-crates:
+    name: Publish to crates.io
+    needs: [validate, create-release]
+    runs-on: ubuntu-latest
+    if: ${{ !contains(needs.validate.outputs.version, '-') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify crates.io readiness
+        run: cargo publish --dry-run
+
+      - name: Publish to crates.io
+        run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}

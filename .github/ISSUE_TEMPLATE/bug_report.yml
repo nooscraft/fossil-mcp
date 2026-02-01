@@ -1,0 +1,123 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the information below to help us diagnose and fix the issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe the bug...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Run `fossil-mcp scan /path/to/project`
+        2. Observe output '...'
+        3. Expected '...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+      placeholder: Describe what should happen...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened
+      placeholder: Describe what actually happened...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Usage Mode
+      description: How are you using Fossil?
+      options:
+        - CLI (fossil-mcp scan/dead-code/clones)
+        - MCP Server (Claude Code, Cursor, VS Code, etc.)
+        - Both
+    validations:
+      required: true
+
+  - type: dropdown
+    id: analysis
+    attributes:
+      label: Analysis Type
+      description: Which analysis is affected?
+      options:
+        - Dead Code Detection
+        - Clone Detection
+        - Scaffolding Detection
+        - Temp File Detection
+        - All Analyses (scan)
+        - MCP Server
+        - CLI Output/Formatting
+        - Configuration
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Information about your environment
+      value: |
+        - **OS**: (e.g., Ubuntu 22.04, Windows 11, macOS 14)
+        - **Fossil MCP version**: (run `fossil-mcp --version`)
+        - **Rust version** (if building from source): (run `rustc --version`)
+        - **Language of analyzed code**: (e.g., TypeScript, Python, Rust)
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Messages / Output
+      description: Any error messages, stack traces, or relevant output
+      render: shell
+      placeholder: Paste error messages or output here...
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context about the problem (config file, project structure, etc.)
+      placeholder: Add any other context, screenshots, or information...
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      description: Please confirm the following
+      options:
+        - label: I have searched existing issues to make sure this is not a duplicate
+          required: true
+        - label: I have provided all required information above
+          required: true
+        - label: I am using the latest version of Fossil MCP
+          required: false

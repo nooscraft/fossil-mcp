@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Discussions
+    url: https://github.com/yfedoseev/fossil-mcp/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: Documentation
+    url: https://github.com/yfedoseev/fossil-mcp#readme
+    about: Read the README for usage guides and setup instructions
+  - name: Security Issues
+    url: https://github.com/yfedoseev/fossil-mcp/security/advisories/new
+    about: Report security vulnerabilities privately

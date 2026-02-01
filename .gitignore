@@ -1,0 +1,15 @@
+/target
+**/*.rs.bk
+Cargo.lock
+*.swp
+*.swo
+.DS_Store
+.idea/
+.vscode/
+*.orig
+fossil_security/
+breachguard/
+rules/
+.fossil/
+
+examples/security/
