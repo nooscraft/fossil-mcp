@@ -285,37 +285,53 @@ fn print_dashboard(
         c.bold("══════════════════════════════════════════════════")
     );
 
-    // Category breakdown
+    // Category breakdown — right-align counts before coloring
     eprintln!();
+    let cat_w = std::cmp::max(
+        dead_code_count.to_string().len(),
+        clone_count.to_string().len(),
+    )
+    .max(1);
     if dead_code_count > 0 {
         let bar = severity_bar(dead_code_count, bar_max, bar_w);
+        let n = format!("{:>w$}", dead_code_count, w = cat_w);
         eprintln!(
-            "  {} Dead Code     {:>5}   {}",
+            "  {} Dead Code     {}   {}",
             c.yellow("▐"),
-            c.white(&dead_code_count.to_string()),
+            c.white(&n),
             c.yellow(&bar),
         );
     }
     if clone_count > 0 {
         let bar = severity_bar(clone_count, bar_max, bar_w);
+        let n = format!("{:>w$}", clone_count, w = cat_w);
         eprintln!(
-            "  {} Clones        {:>5}   {}    {}",
+            "  {} Clones        {}   {}    {}",
             c.cyan("▐"),
-            c.white(&clone_count.to_string()),
+            c.white(&n),
             c.cyan(&bar),
             c.dim(&format!("{} duplicated lines", duplicated_lines)),
         );
     }
 
-    // Confidence
+    // Confidence — right-align all numbers to same width
     if certain_count > 0 || high_count > 0 {
+        let other_count = total - certain_count - high_count;
+        let cw = [certain_count, high_count, other_count]
+            .iter()
+            .map(|n| n.to_string().len())
+            .max()
+            .unwrap_or(1);
+        let cs = format!("{:>w$}", certain_count, w = cw);
+        let hs = format!("{:>w$}", high_count, w = cw);
+        let os = format!("{:>w$}", other_count, w = cw);
         eprintln!();
         eprintln!(
-            "  {} {}  certain   {} high   {} other",
+            "  {} {} certain   {} high   {} other",
             c.dim("Confidence:"),
-            c.white(&certain_count.to_string()),
-            c.white(&high_count.to_string()),
-            c.dim(&(total - certain_count - high_count).to_string()),
+            c.white(&cs),
+            c.white(&hs),
+            c.dim(&os),
         );
     }
 
@@ -340,8 +356,25 @@ fn print_dashboard(
             "  {}",
             c.dim("────────────────────────────────────────────────")
         );
+
+        // Dynamic column widths
         let lang_max = languages[0].1;
         let bar_total = 20;
+        let count_w = languages
+            .iter()
+            .map(|(_, n)| n.to_string().len())
+            .max()
+            .unwrap_or(1);
+        let name_w = languages
+            .iter()
+            .map(|(l, _)| l.name().len())
+            .max()
+            .unwrap_or(1);
+        let any_dead = languages.iter().any(|(l, _)| lang_dead.contains_key(l));
+        let any_clone = languages
+            .iter()
+            .any(|(l, _)| lang_clone.contains_key(l));
+
         for (lang, count) in &languages {
             let dead = *lang_dead.get(lang).unwrap_or(&0);
             let clone = *lang_clone.get(lang).unwrap_or(&0);
@@ -371,27 +404,39 @@ fn print_dashboard(
                 c.dim(&empty_bar),
             );
 
-            // Percentage breakdown
+            // Fixed-width percentage columns (right-aligned numbers)
             let dead_pct = if *count > 0 { (dead * 100) / *count } else { 0 };
             let clone_pct = if *count > 0 {
                 (clone * 100) / *count
             } else {
                 0
             };
-            let pct_label = if dead > 0 && clone > 0 {
-                format!("{}% dead  {}% clones", dead_pct, clone_pct)
-            } else if dead > 0 {
-                format!("{}% dead", dead_pct)
-            } else {
-                format!("{}% clones", clone_pct)
-            };
+            let mut pct = String::new();
+            if any_dead {
+                if dead > 0 {
+                    pct.push_str(&format!("{:>3}% dead", dead_pct));
+                } else {
+                    pct.push_str("         "); // 9 chars padding
+                }
+            }
+            if any_clone {
+                if any_dead {
+                    pct.push_str("  ");
+                }
+                if clone > 0 {
+                    pct.push_str(&format!("{:>3}% clones", clone_pct));
+                }
+            }
 
+            // Pad plain text before coloring to avoid ANSI-breaking alignment
+            let name_padded = format!("{:<w$}", lang.name(), w = name_w);
             eprintln!(
-                "  {}  {:>4}  {:<12} {}",
+                "  {}  {:>cw$}  {}  {}",
                 bar,
                 count,
-                c.white(lang.name()),
-                c.dim(&pct_label),
+                c.white(&name_padded),
+                c.dim(&pct),
+                cw = count_w,
             );
         }
         eprintln!();
@@ -613,6 +658,12 @@ fn interactive_repl(
                     continue;
                 }
                 let max_count = hotspots[0].1;
+                let hw = hotspots
+                    .iter()
+                    .take(show)
+                    .map(|(_, n)| n.to_string().len())
+                    .max()
+                    .unwrap_or(1);
                 eprintln!();
                 eprintln!(
                     "  {} {}",
@@ -626,10 +677,11 @@ fn interactive_repl(
                 for (file, count) in hotspots.iter().take(show) {
                     let bar = severity_bar(*count, max_count, 12);
                     eprintln!(
-                        "  {} {:>4} findings   {}",
+                        "  {} {:>w$} findings   {}",
                         c.yellow(&bar),
                         count,
                         c.dim(file),
+                        w = hw,
                     );
                 }
             }
@@ -665,6 +717,16 @@ fn interactive_repl(
                     continue;
                 }
                 let lang_max = languages[0].1;
+                let lw = languages
+                    .iter()
+                    .map(|(_, n)| n.to_string().len())
+                    .max()
+                    .unwrap_or(1);
+                let nw = languages
+                    .iter()
+                    .map(|(l, _)| l.name().len())
+                    .max()
+                    .unwrap_or(1);
                 eprintln!();
                 eprintln!("  {}", c.bold("LANGUAGES"));
                 eprintln!(
@@ -673,11 +735,12 @@ fn interactive_repl(
                 );
                 for (lang, count) in &languages {
                     let bar = severity_bar(*count, lang_max, 10);
+                    let name_padded = format!("{:<w$}", lang.name(), w = nw);
                     eprintln!(
-                        "  {} {:>4}   {:<12} {}",
+                        "  {} {:>cw$}   {}  {}",
                         c.green(&bar),
                         count,
-                        c.white(lang.name()),
+                        c.white(&name_padded),
                         c.dim(
                             &lang
                                 .extensions()
@@ -685,6 +748,7 @@ fn interactive_repl(
                                 .map(|e| format!(".{e}"))
                                 .unwrap_or_default()
                         ),
+                        cw = lw,
                     );
                 }
             }
