@@ -70,19 +70,46 @@ Fossil MCP is a static analysis toolkit purpose-built for vibe-coded projects. I
 
 ## Install
 
+### Pre-built binaries (recommended)
+
+Download the latest binary for your platform from [GitHub Releases](https://github.com/yfedoseev/fossil-mcp/releases/latest), extract, and place `fossil-mcp` in your PATH:
+
+```bash
+# macOS (Apple Silicon)
+curl -L https://github.com/yfedoseev/fossil-mcp/releases/latest/download/fossil-mcp-macos-aarch64-0.1.0.tar.gz | tar xz
+mv fossil-mcp /usr/local/bin/
+
+# macOS (Intel)
+curl -L https://github.com/yfedoseev/fossil-mcp/releases/latest/download/fossil-mcp-macos-x86_64-0.1.0.tar.gz | tar xz
+mv fossil-mcp /usr/local/bin/
+
+# Linux (x86_64)
+curl -L https://github.com/yfedoseev/fossil-mcp/releases/latest/download/fossil-mcp-linux-x86_64-0.1.0.tar.gz | tar xz
+mv fossil-mcp ~/.local/bin/
+```
+
+| Platform | Architecture | Archive |
+|----------|-------------|---------|
+| Linux | x86_64 (glibc) | `fossil-mcp-linux-x86_64` |
+| Linux | x86_64 (musl) | `fossil-mcp-linux-x86_64-musl` |
+| Linux | ARM64 | `fossil-mcp-linux-aarch64` |
+| macOS | Intel | `fossil-mcp-macos-x86_64` |
+| macOS | Apple Silicon | `fossil-mcp-macos-aarch64` |
+| Windows | x86_64 | `fossil-mcp-windows-x86_64` |
+
 ### From crates.io
 
 ```bash
 cargo install fossil-mcp
 ```
 
-This installs the `fossil-mcp` binary which serves as both the MCP server and CLI tool.
+This downloads the source from crates.io and compiles it locally. Requires a Rust toolchain.
 
 ### From source
 
 ```bash
 git clone https://github.com/yfedoseev/fossil-mcp.git
-cd fossil
+cd fossil-mcp
 cargo build --release
 ```
 
