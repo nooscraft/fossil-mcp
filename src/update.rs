@@ -11,7 +11,7 @@ struct UpdateCache {
     latest_version: String,
 }
 
-fn cache_dir() -> Option<PathBuf> {
+fn cache_path() -> Option<PathBuf> {
     fossil_config_dir().map(|d| d.join("update-check.json"))
 }
 
@@ -33,13 +33,13 @@ fn now_epoch() -> u64 {
 }
 
 fn read_cache() -> Option<UpdateCache> {
-    let path = cache_dir()?;
+    let path = cache_path()?;
     let data = fs::read_to_string(path).ok()?;
     serde_json::from_str(&data).ok()
 }
 
 fn write_cache(cache: &UpdateCache) {
-    if let Some(path) = cache_dir() {
+    if let Some(path) = cache_path() {
         if let Ok(data) = serde_json::to_string(cache) {
             if let Ok(mut f) = fs::File::create(path) {
                 let _ = f.write_all(data.as_bytes());
@@ -90,6 +90,63 @@ fn fetch_latest_version() -> Option<String> {
         .ok()?;
 
     release.first().map(|r| r.version.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_version_basic() {
+        assert_eq!(parse_version("0.1.0"), Some((0, 1, 0)));
+        assert_eq!(parse_version("1.2.3"), Some((1, 2, 3)));
+    }
+
+    #[test]
+    fn test_parse_version_with_v_prefix() {
+        assert_eq!(parse_version("v0.1.1"), Some((0, 1, 1)));
+        assert_eq!(parse_version("v10.20.30"), Some((10, 20, 30)));
+    }
+
+    #[test]
+    fn test_parse_version_invalid() {
+        assert_eq!(parse_version(""), None);
+        assert_eq!(parse_version("0.1"), None);
+        assert_eq!(parse_version("0.1.0.0"), None);
+        assert_eq!(parse_version("abc"), None);
+        assert_eq!(parse_version("0.1.0-rc.1"), None);
+    }
+
+    #[test]
+    fn test_is_newer_basic() {
+        assert!(is_newer("0.1.1", "0.1.0"));
+        assert!(is_newer("0.2.0", "0.1.9"));
+        assert!(is_newer("1.0.0", "0.99.99"));
+    }
+
+    #[test]
+    fn test_is_newer_equal() {
+        assert!(!is_newer("0.1.0", "0.1.0"));
+    }
+
+    #[test]
+    fn test_is_newer_older() {
+        assert!(!is_newer("0.1.0", "0.1.1"));
+        assert!(!is_newer("0.0.9", "0.1.0"));
+    }
+
+    #[test]
+    fn test_is_newer_with_v_prefix() {
+        assert!(is_newer("v0.1.1", "0.1.0"));
+        assert!(is_newer("0.1.1", "v0.1.0"));
+    }
+
+    #[test]
+    fn test_is_newer_invalid_returns_false() {
+        assert!(!is_newer("invalid", "0.1.0"));
+        assert!(!is_newer("0.1.0", "invalid"));
+        assert!(!is_newer("invalid", "also-invalid"));
+    }
 }
 
 /// Background update check — intended to be called from std::thread::spawn.
