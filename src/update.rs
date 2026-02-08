@@ -92,6 +92,40 @@ fn fetch_latest_version() -> Option<String> {
     release.first().map(|r| r.version.clone())
 }
 
+/// Background update check — intended to be called from std::thread::spawn.
+///
+/// Checks GitHub for newer versions at most once per 24 hours.
+/// Prints a notice to stderr if a newer version is available.
+/// Silently does nothing on any error.
+pub fn check_for_update_background() {
+    let current = env!("CARGO_PKG_VERSION");
+
+    // Check cache first
+    if let Some(cache) = read_cache() {
+        let age = now_epoch().saturating_sub(cache.last_check);
+        if age < CHECK_INTERVAL_SECS {
+            // Cache is fresh — use cached result
+            if is_newer(&cache.latest_version, current) {
+                print_update_notice(current, &cache.latest_version);
+            }
+            return;
+        }
+    }
+
+    // Cache is stale or missing — fetch from GitHub
+    if let Some(latest) = fetch_latest_version() {
+        let cache = UpdateCache {
+            last_check: now_epoch(),
+            latest_version: latest.clone(),
+        };
+        write_cache(&cache);
+
+        if is_newer(&latest, current) {
+            print_update_notice(current, &latest);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,39 +180,5 @@ mod tests {
         assert!(!is_newer("invalid", "0.1.0"));
         assert!(!is_newer("0.1.0", "invalid"));
         assert!(!is_newer("invalid", "also-invalid"));
-    }
-}
-
-/// Background update check — intended to be called from std::thread::spawn.
-///
-/// Checks GitHub for newer versions at most once per 24 hours.
-/// Prints a notice to stderr if a newer version is available.
-/// Silently does nothing on any error.
-pub fn check_for_update_background() {
-    let current = env!("CARGO_PKG_VERSION");
-
-    // Check cache first
-    if let Some(cache) = read_cache() {
-        let age = now_epoch().saturating_sub(cache.last_check);
-        if age < CHECK_INTERVAL_SECS {
-            // Cache is fresh — use cached result
-            if is_newer(&cache.latest_version, current) {
-                print_update_notice(current, &cache.latest_version);
-            }
-            return;
-        }
-    }
-
-    // Cache is stale or missing — fetch from GitHub
-    if let Some(latest) = fetch_latest_version() {
-        let cache = UpdateCache {
-            last_check: now_epoch(),
-            latest_version: latest.clone(),
-        };
-        write_cache(&cache);
-
-        if is_newer(&latest, current) {
-            print_update_notice(current, &latest);
-        }
     }
 }
