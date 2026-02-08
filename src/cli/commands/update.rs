@@ -44,7 +44,14 @@ fn check_only(c: &C) -> Result<String, crate::core::Error> {
             c.dim(current),
             c.green(latest_clean),
         );
-        eprintln!("     Run {} to upgrade.", c.cyan("fossil-mcp update"),);
+        if asset_target() == "unknown" {
+            eprintln!(
+                "     Download manually: {}",
+                c.cyan("https://github.com/yfedoseev/fossil-mcp/releases/latest"),
+            );
+        } else {
+            eprintln!("     Run {} to upgrade.", c.cyan("fossil-mcp update"),);
+        }
     } else {
         eprintln!(
             "  {}  Already up to date ({})",

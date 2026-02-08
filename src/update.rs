@@ -76,11 +76,9 @@ fn print_update_notice(current: &str, latest: &str) {
     );
 }
 
-/// Fetch latest version from GitHub API (blocking HTTP via self_update's reqwest).
+/// Fetches the latest released version from the GitHub Releases API using
+/// `self_update::backends::github::ReleaseList` (blocking HTTP call).
 fn fetch_latest_version() -> Option<String> {
-    // Use a minimal ureq-style approach via self_update's built-in HTTP client
-    // self_update re-exports reqwest, but we can also just shell out or use its API.
-    // Simpler: use self_update's update builder just to check.
     let release = self_update::backends::github::ReleaseList::configure()
         .repo_owner("yfedoseev")
         .repo_name("fossil-mcp")
