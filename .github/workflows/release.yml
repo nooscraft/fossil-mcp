@@ -148,6 +148,7 @@ jobs:
           cp target/${{ matrix.target }}/release/fossil-mcp dist/
           cd dist
           tar czf ../${{ matrix.artifact_name }}-${VERSION}.tar.gz fossil-mcp
+          tar czf ../${{ matrix.artifact_name }}.tar.gz fossil-mcp
 
       - name: Create archive (Windows)
         if: runner.os == 'Windows'
@@ -157,6 +158,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist
           Copy-Item target/${{ matrix.target }}/release/fossil-mcp.exe dist/
           Compress-Archive -Path dist/fossil-mcp.exe -DestinationPath ${{ matrix.artifact_name }}-${VERSION}.zip
+          Compress-Archive -Path dist/fossil-mcp.exe -DestinationPath ${{ matrix.artifact_name }}.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6

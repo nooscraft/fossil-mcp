@@ -263,6 +263,13 @@ enum Commands {
         #[command(subcommand)]
         action: RulesAction,
     },
+
+    /// Update fossil-mcp to the latest version
+    Update {
+        /// Check for updates without installing
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -338,6 +345,8 @@ pub fn run() {
             RulesAction::List => commands::rules::list(),
             RulesAction::Validate { path } => commands::rules::validate(&path),
         },
+
+        Commands::Update { check } => commands::update::run(check),
     };
 
     match result {
