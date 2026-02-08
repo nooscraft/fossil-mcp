@@ -44,10 +44,7 @@ fn check_only(c: &C) -> Result<String, crate::core::Error> {
             c.dim(current),
             c.green(latest_clean),
         );
-        eprintln!(
-            "     Run {} to upgrade.",
-            c.cyan("fossil-mcp update"),
-        );
+        eprintln!("     Run {} to upgrade.", c.cyan("fossil-mcp update"),);
     } else {
         eprintln!(
             "  {}  Already up to date ({})",
