@@ -17,7 +17,13 @@ fn main() {
     ];
 
     // Background update check (non-blocking, once per day)
-    if std::env::var("FOSSIL_NO_UPDATE_CHECK").is_err() {
+    // Skip for --help, --version, update (redundant), and MCP mode (machine-oriented)
+    let skip_update_check = args.len() <= 1
+        || matches!(
+            args[1].as_str(),
+            "--help" | "-h" | "--version" | "-V" | "update" | "mcp"
+        );
+    if !skip_update_check && std::env::var("FOSSIL_NO_UPDATE_CHECK").is_err() {
         std::thread::spawn(fossil_mcp::update::check_for_update_background);
     }
 

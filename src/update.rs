@@ -12,11 +12,11 @@ struct UpdateCache {
 }
 
 fn cache_dir() -> Option<PathBuf> {
-    dirs_next().map(|d| d.join("update-check.json"))
+    fossil_config_dir().map(|d| d.join("update-check.json"))
 }
 
 /// Returns ~/.fossil-mcp/ , creating it if needed.
-fn dirs_next() -> Option<PathBuf> {
+fn fossil_config_dir() -> Option<PathBuf> {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .ok()?;
@@ -61,7 +61,7 @@ fn parse_version(tag: &str) -> Option<(u64, u64, u64)> {
     ))
 }
 
-fn is_newer(latest: &str, current: &str) -> bool {
+pub fn is_newer(latest: &str, current: &str) -> bool {
     match (parse_version(latest), parse_version(current)) {
         (Some(l), Some(c)) => l > c,
         _ => false,

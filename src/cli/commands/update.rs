@@ -37,7 +37,7 @@ fn check_only(c: &C) -> Result<String, crate::core::Error> {
 
     let latest_clean = latest.strip_prefix('v').unwrap_or(latest);
 
-    if latest_clean != current {
+    if crate::update::is_newer(latest_clean, current) {
         eprintln!(
             "  {}  Update available: {} \u{2192} {}",
             c.yellow("\u{25cf}"),
