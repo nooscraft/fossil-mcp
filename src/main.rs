@@ -8,12 +8,18 @@ fn main() {
         "dead-code",
         "clones",
         "rules",
+        "update",
         "mcp",
         "--help",
         "-h",
         "--version",
         "-V",
     ];
+
+    // Background update check (non-blocking, once per day)
+    if std::env::var("FOSSIL_NO_UPDATE_CHECK").is_err() {
+        std::thread::spawn(fossil_mcp::update::check_for_update_background);
+    }
 
     if args.len() > 1 && cli_subcommands.contains(&args[1].as_str()) {
         if args[1] == "mcp" {

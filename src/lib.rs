@@ -16,3 +16,4 @@ pub mod mcp;
 pub mod output;
 pub mod parsers;
 pub mod rules;
+pub mod update;
