@@ -10,10 +10,6 @@ Static analysis that finds the mess vibe coding leaves behind — dead code, dup
 [![Crates.io](https://img.shields.io/crates/v/fossil-mcp.svg)](https://crates.io/crates/fossil-mcp)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
 
-[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=fossil&config=%7B%22command%22%3A%22fossil-mcp%22%7D)
-[![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=fossil&config=%7B%22command%22%3A%22fossil-mcp%22%7D&quality=insiders)
-[![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=fossil&config=eyJjb21tYW5kIjoiZm9zc2lsLW1jcCJ9)
-
 ---
 
 ## The Problem
@@ -76,15 +72,15 @@ Download the latest binary for your platform from [GitHub Releases](https://gith
 
 ```bash
 # macOS (Apple Silicon)
-curl -L https://github.com/yfedoseev/fossil-mcp/releases/latest/download/fossil-mcp-macos-aarch64-0.1.0.tar.gz | tar xz
+curl -L https://github.com/yfedoseev/fossil-mcp/releases/latest/download/fossil-mcp-macos-aarch64.tar.gz | tar xz
 mv fossil-mcp /usr/local/bin/
 
 # macOS (Intel)
-curl -L https://github.com/yfedoseev/fossil-mcp/releases/latest/download/fossil-mcp-macos-x86_64-0.1.0.tar.gz | tar xz
+curl -L https://github.com/yfedoseev/fossil-mcp/releases/latest/download/fossil-mcp-macos-x86_64.tar.gz | tar xz
 mv fossil-mcp /usr/local/bin/
 
 # Linux (x86_64)
-curl -L https://github.com/yfedoseev/fossil-mcp/releases/latest/download/fossil-mcp-linux-x86_64-0.1.0.tar.gz | tar xz
+curl -L https://github.com/yfedoseev/fossil-mcp/releases/latest/download/fossil-mcp-linux-x86_64.tar.gz | tar xz
 mv fossil-mcp ~/.local/bin/
 ```
 
@@ -96,6 +92,14 @@ mv fossil-mcp ~/.local/bin/
 | macOS | Intel | `fossil-mcp-macos-x86_64` |
 | macOS | Apple Silicon | `fossil-mcp-macos-aarch64` |
 | Windows | x86_64 | `fossil-mcp-windows-x86_64` |
+
+### cargo-binstall
+
+If you have [cargo-binstall](https://github.com/cargo-bins/cargo-binstall), it downloads pre-built binaries instead of compiling from source:
+
+```bash
+cargo binstall fossil-mcp
+```
 
 ### From crates.io
 
@@ -115,9 +119,19 @@ cargo build --release
 
 The binary is at `./target/release/fossil-mcp`.
 
+### Updating
+
+```bash
+fossil-mcp update
+```
+
 ---
 
 ## MCP Server Setup
+
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=fossil&config=%7B%22command%22%3A%22fossil-mcp%22%7D)
+[![Install in VS Code Insiders](https://img.shields.io/badge/VS_Code_Insiders-Install_Server-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=fossil&config=%7B%22command%22%3A%22fossil-mcp%22%7D&quality=insiders)
+[![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=fossil&config=eyJjb21tYW5kIjoiZm9zc2lsLW1jcCJ9)
 
 Fossil runs as an MCP server by default — just run `fossil-mcp` with no arguments. Connect it to your AI coding tool:
 
