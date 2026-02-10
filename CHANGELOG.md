@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2025-02-09
+
+### Added
+
+- `cargo binstall fossil-mcp` support via `[package.metadata.binstall]` in Cargo.toml
+- Per-target binary overrides for all 6 release platforms (Linux glibc/musl/aarch64, macOS Intel/Apple Silicon, Windows)
+- `cargo-binstall` install section in README
+
+### Changed
+
+- Moved VS Code / Cursor one-click install badges from top of README into MCP Server Setup section for clearer install flow
+- Fixed hardcoded `0.1.0` download URLs in README to use version-less `/releases/latest/download/` URLs
+
 ## [0.1.1] - 2025-02-07
 
 ### Added
@@ -42,5 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SARIF, JSON, and text output formats
 - Configuration via `.fossil.toml`
 
+[0.1.2]: https://github.com/yfedoseev/fossil-mcp/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/yfedoseev/fossil-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/yfedoseev/fossil-mcp/releases/tag/v0.1.0
