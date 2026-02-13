@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 // Language
 // =============================================================================
 
-/// Programming languages supported by Fossil (17 languages).
+/// Programming languages supported by Fossil (18 languages).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Language {
@@ -31,6 +31,7 @@ pub enum Language {
     Bash,
     Scala,
     Dart,
+    R,
 }
 
 impl Language {
@@ -54,6 +55,7 @@ impl Language {
             Language::Bash => &["sh", "bash"],
             Language::Scala => &["scala"],
             Language::Dart => &["dart"],
+            Language::R => &["r", "R"],
         }
     }
 
@@ -78,6 +80,7 @@ impl Language {
             "sh" | "bash" => Some(Language::Bash),
             "scala" => Some(Language::Scala),
             "dart" => Some(Language::Dart),
+            "r" => Some(Language::R),
             _ => None,
         }
     }
@@ -109,6 +112,7 @@ impl Language {
             Language::Bash => "Bash",
             Language::Scala => "Scala",
             Language::Dart => "Dart",
+            Language::R => "R",
         }
     }
 
@@ -152,6 +156,7 @@ impl Language {
             Language::Bash,
             Language::Scala,
             Language::Dart,
+            Language::R,
         ]
     }
 
@@ -919,7 +924,7 @@ mod tests {
 
     #[test]
     fn test_language_all() {
-        assert_eq!(Language::all().len(), 17);
+        assert_eq!(Language::all().len(), 18);
     }
 
     #[test]

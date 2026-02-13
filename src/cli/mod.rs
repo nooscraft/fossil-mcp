@@ -155,7 +155,7 @@ fn banner_string(use_colors: bool) -> String {
     out.push_str(&format!(
         "{d}  ────────────────────────────────────────────────────────────────{r}\n"
     ));
-    out.push_str(&format!("{d}  Version:{r} {y}{version}{r}    {d}Languages:{r} {w}15{r}    {d}Analyses:{r} {w}dead code · clones · scaffolding · temp files{r}\n"));
+    out.push_str(&format!("{d}  Version:{r} {y}{version}{r}    {d}Languages:{r} {w}16{r}    {d}Analyses:{r} {w}dead code · clones · scaffolding · temp files{r}\n"));
     out.push_str(&format!(
         "{d}  ────────────────────────────────────────────────────────────────{r}\n"
     ));

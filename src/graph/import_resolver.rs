@@ -64,6 +64,7 @@ impl ImportResolver {
             Language::CSharp => self.resolve_csharp(source_module),
             Language::Ruby => self.resolve_ruby(source_module, importing_file),
             Language::PHP => self.resolve_php(source_module),
+            Language::R => self.resolve_r(source_module, importing_file),
             _ => Vec::new(),
         }
     }
@@ -213,6 +214,34 @@ impl ImportResolver {
         if let Some(class_name) = source_module.rsplit('\\').next() {
             candidates.push(format!("{}.php", class_name));
         }
+        candidates
+    }
+
+    /// R: Handle `source("file.R")` and package references like `pkg::func`.
+    ///
+    /// For source imports: `"script.R"` → relative path with `.R` extension
+    /// For package imports: `"pkg"` → look in R/ directory for `R/pkg.R`
+    fn resolve_r(&self, source_module: &str, importing_file: &str) -> Vec<String> {
+        let mut candidates = Vec::new();
+
+        // Handle source("file.R") - relative to importing file
+        if source_module.ends_with(".R") || source_module.ends_with(".r") {
+            let importing_dir = Path::new(importing_file).parent().unwrap_or(Path::new("."));
+            let base = importing_dir.join(source_module);
+            let base_str = normalize_path(&base);
+            candidates.push(base_str.clone());
+            candidates.push(source_module.to_string());
+        } else {
+            // Handle library(pkg) or pkg::func - package name
+            // R packages are typically system-wide, but for project-local "packages",
+            // look for R/<pkg>.R pattern
+            candidates.push(format!("R/{}.R", source_module));
+            candidates.push(format!("R/{}.r", source_module));
+            // Also try bare name for potential file in project root
+            candidates.push(format!("{}.R", source_module));
+            candidates.push(format!("{}.r", source_module));
+        }
+
         candidates
     }
 

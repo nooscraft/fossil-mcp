@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2025-02-12
+
+### Added
+
+- **R language support** (Issue #28)
+  - R parser registration with support for `.r` and `.R` file extensions
+  - R-specific extraction: function definitions, function calls, imports
+  - R syntax support: pipe operators (`|>`, `%>%`), assignments (`<-`, `->`), namespace operators (`::`, `:::`)
+  - Cross-file import resolution via `source()`, `library()`, `require()`
+  - Variable data flow analysis for dead store detection
+  - R framework-aware presets for popular frameworks:
+    - **Shiny**: 14 lifecycle methods (renderUI, renderPlot, reactive, observe, moduleServer, etc.)
+    - **tidyverse/dplyr**: 25+ data manipulation methods (filter, mutate, select, join, pivot_*, read_csv, etc.)
+    - **R6**: 10 OOP lifecycle methods (initialize, print, finalize, clone, set, get, format, as.character, etc.)
+    - **S3**: 13 generic functions (print, summary, plot, predict, coef, residuals, fitted, confint, logLik, formula, terms, model.frame, model.matrix, anova)
+    - **data.table**: 8 high-performance data manipulation methods (setDT, merge, rbindlist, set, setkeyv, setorder, etc.)
+  - DESCRIPTION file parsing for R framework auto-detection
+  - 6 end-to-end tests for R language and framework presets
+
+- **Language filtering** (Issue #17)
+  - `--language` flag on `dead-code` and `clones` CLI commands
+  - `language` parameter on `analyze_dead_code` and `detect_clones` MCP tools
+  - Support for comma-separated language list (e.g., `--language rust,python,go`)
+  - Language validation and filtering
+
+- **CI/CD mode** (Issue #29)
+  - Configuration system via `.fossil.toml` with threshold settings
+  - Git diff integration for PR-scoped dead code and clone analysis
+  - Threshold evaluation with confidence filtering (`--min-confidence`)
+  - CI runner orchestrating dead code + clones + threshold evaluation
+  - CLI `check` command with options: `--diff`, `--max-dead-code`, `--min-confidence`, `--min-clone-lines`
+  - SARIF output integration with result formatting
+  - Exit code handling for threshold violations
+  - 14 comprehensive CI/CD tests including configuration, evaluation, and exit codes
+
+### Changed
+
+- Supported languages expanded from 15 to 16 (added R)
+- Language table in README updated to include R with `.r`, `.R` extensions
+- CLI language banner updated to display 16 supported languages
+
+### Dependencies
+
+- Added `tree-sitter-r = "1.2"` for R language parsing
+
+[0.1.3]: https://github.com/yfedoseev/fossil-mcp/compare/v0.1.2...v0.1.3
+
 ## [0.1.2] - 2025-02-09
 
 ### Added

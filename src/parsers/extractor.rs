@@ -127,6 +127,15 @@ fn extract_name_from_def(node: tree_sitter::Node, source: &str) -> Option<String
         }
         return Some(source[decl.byte_range()].to_string());
     }
+
+    // Fallback for R: first identifier child is the function name
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "identifier" {
+            return Some(source[child.byte_range()].to_string());
+        }
+    }
+
     None
 }
 
@@ -173,6 +182,9 @@ fn check_visibility(
         // Ruby: functions starting with _ or inside private block are private
         crate::core::Language::Ruby => !name.starts_with('_'),
 
+        // R: functions starting with . are private convention, others are public
+        crate::core::Language::R => !name.starts_with('.'),
+
         // PHP: check for public/private/protected keywords
         crate::core::Language::PHP => {
             let node_text = &source[node.byte_range()];
@@ -207,11 +219,11 @@ fn check_visibility(
 pub fn extract_calls(tree: &ZeroCopyParseTree) -> Vec<(usize, String)> {
     let mut results = Vec::new();
     let root = tree.ts_tree().root_node();
-    collect_calls(root, tree.source_code(), &mut results);
+    collect_calls(root, tree.source_code(), tree.language(), &mut results);
     results
 }
 
-fn collect_calls(node: tree_sitter::Node, source: &str, results: &mut Vec<(usize, String)>) {
+fn collect_calls(node: tree_sitter::Node, source: &str, language: crate::core::Language, results: &mut Vec<(usize, String)>) {
     let kind = node.kind();
     let line = node.start_position().row + 1;
 
@@ -335,12 +347,32 @@ fn collect_calls(node: tree_sitter::Node, source: &str, results: &mut Vec<(usize
             }
         }
 
+        // R: pipe (data |> filter() or data %>% mutate())
+        "pipe" => {
+            if let Some(rhs) = node.child_by_field_name("rhs") {
+                let callee = extract_callee_name(rhs, source);
+                if !callee.is_empty() {
+                    results.push((line, callee));
+                }
+            }
+        }
+
+        // R: namespace operators (pkg::func() or pkg:::internal())
+        "namespace_get" | "namespace_get_internal" => {
+            if let Some(name) = node.child_by_field_name("name") {
+                let callee = source[name.byte_range()].to_string();
+                if !callee.is_empty() {
+                    results.push((line, callee));
+                }
+            }
+        }
+
         _ => {}
     }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_calls(child, source, results);
+        collect_calls(child, source, language, results);
     }
 }
 
@@ -1043,6 +1075,64 @@ fn collect_imports(
                         }
                     }
                 }
+            }
+        }
+        crate::core::Language::R => {
+            match kind {
+                // library(pkg) or require(pkg)
+                "call" => {
+                    if let Some(func_node) = node.child_by_field_name("function") {
+                        let func_name = source[func_node.byte_range()].to_string();
+
+                        if func_name == "library" || func_name == "require" {
+                            // Extract package name from first argument
+                            let mut cursor = node.walk();
+                            for child in node.children(&mut cursor) {
+                                if child.kind() == "argument_list" {
+                                    // Get first argument (package name)
+                                    if let Some(arg) = child.named_child(0) {
+                                        let pkg = source[arg.byte_range()]
+                                            .trim_matches(|c| c == '"' || c == '\'')
+                                            .to_string();
+                                        if !pkg.is_empty() {
+                                            // Import as: pkg (imported_as: pkg, source_module: pkg)
+                                            results.push((pkg.clone(), pkg, None, line));
+                                        }
+                                    }
+                                }
+                            }
+                        } else if func_name == "source" {
+                            // source("script.R") - file-level imports
+                            let mut cursor = node.walk();
+                            for child in node.children(&mut cursor) {
+                                if child.kind() == "argument_list" {
+                                    if let Some(arg) = child.named_child(0) {
+                                        let file_path = source[arg.byte_range()]
+                                            .trim_matches(|c| c == '"' || c == '\'')
+                                            .to_string();
+                                        if !file_path.is_empty() {
+                                            // Import as wildcard from source file
+                                            results.push(("*".to_string(), file_path, None, line));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // pkg::func - implicit namespace import
+                "namespace_get" | "namespace_get_internal" => {
+                    if let Some(pkg_node) = node.child_by_field_name("namespace") {
+                        let pkg = source[pkg_node.byte_range()].to_string();
+                        if !pkg.is_empty() {
+                            // Import as wildcard from package
+                            results.push(("*".to_string(), pkg, None, line));
+                        }
+                    }
+                }
+
+                _ => {}
             }
         }
         _ => {}

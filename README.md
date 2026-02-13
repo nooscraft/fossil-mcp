@@ -2,7 +2,7 @@
 
 **The code quality toolkit for the vibe coding era.**
 
-Static analysis that finds the mess vibe coding leaves behind — dead code, duplicated logic, scaffolding artifacts, and disconnected functions — across 15 languages.
+Static analysis that finds the mess vibe coding leaves behind — dead code, duplicated logic, scaffolding artifacts, and disconnected functions — across 16 languages.
 
 **[fossil-mcp.com](https://fossil-mcp.com)**
 
@@ -60,7 +60,7 @@ Fossil MCP is a static analysis toolkit purpose-built for vibe-coded projects. I
 - **Cross-file analysis.** Resolves imports, barrel re-exports, and class hierarchies to find dead code across module boundaries.
 - **Framework-aware.** Auto-detects React, Next.js, Django, Spring, Axum, and more — won't flag lifecycle methods as dead code.
 - **Zero configuration.** Works out of the box. Config file is optional.
-- **15 languages.** One tool for polyglot codebases.
+- **16 languages.** One tool for polyglot codebases.
 
 ---
 
@@ -317,7 +317,7 @@ fossil> export sarif   # Export full SARIF report
 | Kotlin | `.kt` |
 | Scala | `.scala` |
 | Bash | `.sh`, `.bash` |
-| Lua | `.lua` |
+| R | `.r`, `.R` |
 
 ---
 
@@ -473,7 +473,7 @@ For complete examples, see [examples/fossil.toml](examples/fossil.toml) and [exa
 ## How It Works
 
 1. **Scan** — walks project files, respects `.gitignore`, skips vendored/generated code
-2. **Parse** — builds tree-sitter ASTs for each source file (15 languages)
+2. **Parse** — builds tree-sitter ASTs for each source file (16 languages)
 3. **Extract** — pulls functions, calls, imports, attributes, and class hierarchy from ASTs
 4. **Graph** — builds a cross-file `CodeGraph` with import resolution and barrel re-export support
 5. **Analyze** — detects entry points (via heuristics + framework presets), runs reachability analysis, identifies dead code and clones

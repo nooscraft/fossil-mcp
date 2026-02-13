@@ -44,6 +44,7 @@ tree-sitter-c = "0.24"
 tree-sitter-swift = "0.7"
 tree-sitter-bash = "0.25"
 tree-sitter-scala = "0.24"
+tree-sitter-r = "1.2"
 streaming-iterator = "0.1"
 
 # Serialization
