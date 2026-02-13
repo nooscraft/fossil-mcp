@@ -442,17 +442,14 @@ pub fn build_graph_from_tree(
     // Create nodes for each function
     let mut name_to_id: HashMap<String, NodeId> = HashMap::new();
 
-    for (name, start_line, end_line, is_public) in &functions {
+    for (name, start_line, end_line, is_public, node_kind) in &functions {
         let visibility = if *is_public {
             Visibility::Public
         } else {
             Visibility::Private
         };
-        let kind = if name.chars().next().is_some_and(|c| c.is_uppercase()) {
-            NodeKind::Class
-        } else {
-            NodeKind::Function
-        };
+        // Use the NodeKind from extraction instead of guessing from name
+        let kind = *node_kind;
 
         let node = CodeNode::new(
             name.clone(),
@@ -491,10 +488,10 @@ pub fn build_graph_from_tree(
 }
 
 fn find_containing_function(
-    functions: &[(String, usize, usize, bool)],
+    functions: &[(String, usize, usize, bool, NodeKind)],
     line: usize,
 ) -> Option<&str> {
-    let mut best: Option<&(String, usize, usize, bool)> = None;
+    let mut best: Option<&(String, usize, usize, bool, NodeKind)> = None;
     for func in functions {
         if line >= func.1
             && line <= func.2
