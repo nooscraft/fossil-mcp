@@ -82,15 +82,21 @@ impl DiffFilter {
 mod tests {
     use super::*;
 
+    /// Create a test DiffFilter with predefined files (for testing only).
+    #[cfg(test)]
+    pub(crate) fn create_test_diff_filter(
+        base_branch: &str,
+        changed_files: Vec<&str>,
+    ) -> DiffFilter {
+        DiffFilter {
+            base_branch: base_branch.to_string(),
+            changed_files: changed_files.iter().map(|f| PathBuf::from(f)).collect(),
+        }
+    }
+
     #[test]
     fn test_diff_filter_contains() {
-        let filter = DiffFilter {
-            base_branch: "main".to_string(),
-            changed_files: vec![
-                PathBuf::from("src/main.rs"),
-                PathBuf::from("src/lib.rs"),
-            ],
-        };
+        let filter = create_test_diff_filter("main", vec!["src/main.rs", "src/lib.rs"]);
 
         assert!(filter.contains("src/main.rs"));
         assert!(filter.contains("src/lib.rs"));
@@ -99,10 +105,7 @@ mod tests {
 
     #[test]
     fn test_diff_filter_scope() {
-        let filter = DiffFilter {
-            base_branch: "origin/main".to_string(),
-            changed_files: vec![PathBuf::from("src/a.rs"), PathBuf::from("src/b.rs")],
-        };
+        let filter = create_test_diff_filter("origin/main", vec!["src/a.rs", "src/b.rs"]);
 
         let scope = filter.scope();
         assert_eq!(scope.base_branch, "origin/main");
