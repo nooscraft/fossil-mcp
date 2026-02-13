@@ -21,12 +21,10 @@ fn detect_dead_names_with_config(dir: &TempDir, mut config: DetectorConfig) -> V
     // Auto-detect and apply presets based on project files
     if config.entry_point_rules.is_none() {
         let entry_point_config = fossil_mcp::config::EntryPointConfig::default();
-        config.entry_point_rules = Some(
-            fossil_mcp::config::ResolvedEntryPointRules::from_config(
-                &entry_point_config,
-                Some(dir.path()),
-            )
-        );
+        config.entry_point_rules = Some(fossil_mcp::config::ResolvedEntryPointRules::from_config(
+            &entry_point_config,
+            Some(dir.path()),
+        ));
     }
 
     let detector = Detector::new(config);
@@ -1990,7 +1988,12 @@ print(result)
     // R functions are currently detected but with generic "function" names
     // This test verifies detection works even if names aren't fully resolved
     // Both functions are dead (neither is called), so expect 2
-    assert_eq!(dead_names.len(), 2, "Should detect 2 dead functions. Dead: {:?}", dead_names);
+    assert_eq!(
+        dead_names.len(),
+        2,
+        "Should detect 2 dead functions. Dead: {:?}",
+        dead_names
+    );
     assert!(
         dead_names.iter().all(|n| n == "function"),
         "Should have generic 'function' names. Dead: {:?}",
@@ -2027,7 +2030,11 @@ result <- filter_data(data)
 
     let dead_names = detect_dead_names(&dir);
     // With current tree-sitter-r support, functions are detected but named generically
-    assert!(dead_names.len() >= 1, "Should detect at least 1 dead function. Dead: {:?}", dead_names);
+    assert!(
+        !dead_names.is_empty(),
+        "Should detect at least 1 dead function. Dead: {:?}",
+        dead_names
+    );
     assert!(
         dead_names.contains(&"function".to_string()),
         "Should detect dead functions (named as 'function'). Dead: {:?}",
@@ -2281,7 +2288,8 @@ def duplicate_py_2():
     .unwrap();
 
     // Test with Rust filter — should find Rust clones
-    let rust_clones = detect_clones_with_filter(dir.path(), 5, 0.8, "type1,type2,type3", Some("rust"));
+    let rust_clones =
+        detect_clones_with_filter(dir.path(), 5, 0.8, "type1,type2,type3", Some("rust"));
     assert!(
         !rust_clones.is_empty(),
         "Should find Rust clones with language filter"
@@ -2324,10 +2332,7 @@ def duplicate_py_2():
 }
 
 /// Helper function to detect dead code with language filter
-fn detect_dead_names_with_filter(
-    dir: &std::path::Path,
-    language: Option<&str>,
-) -> Vec<String> {
+fn detect_dead_names_with_filter(dir: &std::path::Path, language: Option<&str>) -> Vec<String> {
     use fossil_mcp::core::Language;
 
     let fossil_config = fossil_mcp::config::FossilConfig::discover(dir);
@@ -2383,7 +2388,7 @@ fn detect_clones_with_filter(
     types: &str,
     language: Option<&str>,
 ) -> Vec<fossil_mcp::clones::types::CloneGroup> {
-    use fossil_mcp::clones::detector::{CloneDetector, CloneConfig};
+    use fossil_mcp::clones::detector::{CloneConfig, CloneDetector};
     use fossil_mcp::core::Language;
 
     let type_list: Vec<&str> = types.split(',').map(|t| t.trim()).collect();

@@ -346,14 +346,10 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
             }
 
             /// Helper function to check if a function has a placeholder body
-            fn has_placeholder_body(
-                source_lines: &[&str],
-                function_line: usize,
-            ) -> bool {
+            fn has_placeholder_body(source_lines: &[&str], function_line: usize) -> bool {
                 // Scan next 10 lines for placeholder patterns
                 let end = (function_line + 10).min(source_lines.len());
-                for i in function_line..end {
-                    let line = source_lines[i];
+                for line in &source_lines[function_line..end] {
                     let trimmed = line.trim();
                     if trimmed == "pass"
                         || trimmed == "..."
@@ -363,7 +359,9 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                         return true;
                     }
                     // If we hit closing brace or semicolon at start of line, stop scanning
-                    if trimmed.starts_with('}') || (trimmed.starts_with(';') && !trimmed.contains('(')) {
+                    if trimmed.starts_with('}')
+                        || (trimmed.starts_with(';') && !trimmed.contains('('))
+                    {
                         break;
                     }
                 }
@@ -389,20 +387,20 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                         }
 
                         // For placeholder identifiers, check if function has real implementation (#26)
-                        let confidence = if category == "scaffold" && re_scaffold_ident.is_match(name)
-                        {
-                            if has_placeholder_body(&source_lines, line_num_0) {
-                                "high"
+                        let confidence =
+                            if category == "scaffold" && re_scaffold_ident.is_match(name) {
+                                if has_placeholder_body(&source_lines, line_num_0) {
+                                    "high"
+                                } else {
+                                    "low" // Has real implementation, probably legitimate API
+                                }
+                            } else if category == "phased" {
+                                // Phase N in identifiers is very likely domain-related (phase_count, phase1_latency)
+                                // Lower confidence significantly (#24)
+                                "low"
                             } else {
-                                "low" // Has real implementation, probably legitimate API
-                            }
-                        } else if category == "phased" {
-                            // Phase N in identifiers is very likely domain-related (phase_count, phase1_latency)
-                            // Lower confidence significantly (#24)
-                            "low"
-                        } else {
-                            "high"
-                        };
+                                "high"
+                            };
 
                         findings.push(json!({
                             "file": rel_path,

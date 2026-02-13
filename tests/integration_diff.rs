@@ -16,20 +16,20 @@ fn init_git_repo(dir: &TempDir) -> PathBuf {
 
     // Initialize git repo
     Command::new("git")
-        .args(&["init"])
+        .args(["init"])
         .current_dir(repo_path)
         .output()
         .expect("Failed to init git repo");
 
     // Configure git user (required for commits)
     Command::new("git")
-        .args(&["config", "user.email", "test@example.com"])
+        .args(["config", "user.email", "test@example.com"])
         .current_dir(repo_path)
         .output()
         .expect("Failed to set git email");
 
     Command::new("git")
-        .args(&["config", "user.name", "Test User"])
+        .args(["config", "user.name", "Test User"])
         .current_dir(repo_path)
         .output()
         .expect("Failed to set git name");
@@ -40,13 +40,13 @@ fn init_git_repo(dir: &TempDir) -> PathBuf {
 /// Helper: Commit all changes in git repo
 fn commit_all(repo_path: &PathBuf, message: &str) {
     Command::new("git")
-        .args(&["add", "."])
+        .args(["add", "."])
         .current_dir(repo_path)
         .output()
         .expect("Failed to stage files");
 
     Command::new("git")
-        .args(&["commit", "-m", message])
+        .args(["commit", "-m", message])
         .current_dir(repo_path)
         .output()
         .expect("Failed to commit");
@@ -55,10 +55,10 @@ fn commit_all(repo_path: &PathBuf, message: &str) {
 /// Helper: Create and checkout a new branch
 fn create_branch(repo_path: &PathBuf, branch_name: &str) {
     Command::new("git")
-        .args(&["checkout", "-b", branch_name])
+        .args(["checkout", "-b", branch_name])
         .current_dir(repo_path)
         .output()
-        .expect(&format!("Failed to create branch {}", branch_name));
+        .unwrap_or_else(|_| panic!("Failed to create branch {}", branch_name));
 }
 
 // ============================================================================
@@ -107,7 +107,7 @@ fn used_in_feature() {}
 
     // Run diff to see what changed
     let output = Command::new("git")
-        .args(&["diff", "main...HEAD", "--name-only"])
+        .args(["diff", "main...HEAD", "--name-only"])
         .current_dir(&repo_path)
         .output()
         .expect("Failed to run git diff");
@@ -181,7 +181,7 @@ pub fn util_func() {}
 
     // Run diff to see all changed files
     let output = Command::new("git")
-        .args(&["diff", "main...HEAD", "--name-only"])
+        .args(["diff", "main...HEAD", "--name-only"])
         .current_dir(&repo_path)
         .output()
         .expect("Failed to run git diff");
@@ -245,8 +245,8 @@ fn unused_function() {
     commit_all(&repo_path, "Add file with dead code");
 
     // Create diff filter pointing to main branch
-    let diff_filter = fossil_mcp::ci::DiffFilter::new("main", &repo_path)
-        .expect("Failed to create DiffFilter");
+    let diff_filter =
+        fossil_mcp::ci::DiffFilter::new("main", &repo_path).expect("Failed to create DiffFilter");
 
     // Verify diff scope
     let scope = diff_filter.scope();
@@ -298,8 +298,8 @@ fn test_diff_filter_path_normalization() {
 
     commit_all(&repo_path, "Modify nested file");
 
-    let diff_filter = fossil_mcp::ci::DiffFilter::new("main", &repo_path)
-        .expect("Failed to create DiffFilter");
+    let diff_filter =
+        fossil_mcp::ci::DiffFilter::new("main", &repo_path).expect("Failed to create DiffFilter");
 
     // Test various path formats that should match the same file
     assert!(
@@ -359,8 +359,8 @@ fn test_diff_filter_deleted_files() {
 
     commit_all(&repo_path, "Delete old file");
 
-    let diff_filter = fossil_mcp::ci::DiffFilter::new("main", &repo_path)
-        .expect("Failed to create DiffFilter");
+    let diff_filter =
+        fossil_mcp::ci::DiffFilter::new("main", &repo_path).expect("Failed to create DiffFilter");
 
     let scope = diff_filter.scope();
 

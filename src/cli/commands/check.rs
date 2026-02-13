@@ -12,6 +12,7 @@ use crate::core::Error;
 ///
 /// Returns a formatted output string. The exit code is determined by the result
 /// (0 = pass, 1 = threshold exceeded), which is set via the exit handler in main().
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     path: &Path,
     diff: Option<&str>,
@@ -74,10 +75,8 @@ pub fn run(
 
     // Format output based on format flag
     let output = match format {
-        "json" => {
-            serde_json::to_string_pretty(&result)
-                .map_err(|e| Error::analysis(format!("JSON error: {e}")))?
-        }
+        "json" => serde_json::to_string_pretty(&result)
+            .map_err(|e| Error::analysis(format!("JSON error: {e}")))?,
         "sarif" => {
             // Create a minimal SARIF structure with findings
             let sarif_json = json!({

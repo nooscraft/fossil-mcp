@@ -89,15 +89,16 @@ impl ThresholdEvaluator {
 
     /// Get the minimum confidence filter if configured.
     pub fn min_confidence(&self) -> Option<Confidence> {
-        self.config.min_confidence.as_ref().and_then(|s| {
-            match s.to_lowercase().as_str() {
+        self.config
+            .min_confidence
+            .as_ref()
+            .and_then(|s| match s.to_lowercase().as_str() {
                 "certain" => Some(Confidence::Certain),
                 "high" => Some(Confidence::High),
                 "medium" => Some(Confidence::Medium),
                 "low" => Some(Confidence::Low),
                 _ => None,
-            }
-        })
+            })
     }
 }
 

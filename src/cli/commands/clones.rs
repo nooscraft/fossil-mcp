@@ -2,8 +2,8 @@
 
 use std::path::Path;
 
-use crate::core::Language;
 use crate::clones::detector::{CloneConfig, CloneDetector};
+use crate::core::Language;
 
 pub fn run(
     path: &Path,

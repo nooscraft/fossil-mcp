@@ -342,7 +342,7 @@ impl ResolvedEntryPointRules {
             "serde_deserialize_with:",
             "extends:",
             "implements:",
-            "trait_default:",  // Rust trait default implementations (#20)
+            "trait_default:", // Rust trait default implementations (#20)
         ] {
             rules.prefix_attributes.push(prefix.to_string());
         }

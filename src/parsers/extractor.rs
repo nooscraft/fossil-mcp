@@ -7,7 +7,9 @@
 use super::ZeroCopyParseTree;
 
 /// Extract function/method definitions as (name, start_line, end_line, is_public, node_kind).
-pub fn extract_functions(tree: &ZeroCopyParseTree) -> Vec<(String, usize, usize, bool, crate::core::NodeKind)> {
+pub fn extract_functions(
+    tree: &ZeroCopyParseTree,
+) -> Vec<(String, usize, usize, bool, crate::core::NodeKind)> {
     let mut results = Vec::new();
     let root = tree.ts_tree().root_node();
     collect_functions(root, tree.source_code(), tree.language(), &mut results);
@@ -22,9 +24,15 @@ fn determine_node_kind(ts_kind: &str, _language: crate::core::Language) -> crate
         "trait_item" => NodeKind::Trait,
         "enum_item" | "enum_declaration" => NodeKind::Struct, // treat enums like structs
         "interface_declaration" => NodeKind::Trait,
-        "function_item" | "function_definition" | "function_declaration" |
-        "method_definition" | "method_declaration" | "method" | "function" |
-        "arrow_function" | "func_literal" => NodeKind::Function,
+        "function_item"
+        | "function_definition"
+        | "function_declaration"
+        | "method_definition"
+        | "method_declaration"
+        | "method"
+        | "function"
+        | "arrow_function"
+        | "func_literal" => NodeKind::Function,
         _ => NodeKind::Function, // fallback for anything we don't explicitly handle
     }
 }
@@ -223,7 +231,13 @@ pub fn extract_calls(tree: &ZeroCopyParseTree) -> Vec<(usize, String)> {
     results
 }
 
-fn collect_calls(node: tree_sitter::Node, source: &str, language: crate::core::Language, results: &mut Vec<(usize, String)>) {
+#[allow(clippy::only_used_in_recursion)]
+fn collect_calls(
+    node: tree_sitter::Node,
+    source: &str,
+    language: crate::core::Language,
+    results: &mut Vec<(usize, String)>,
+) {
     let kind = node.kind();
     let line = node.start_position().row + 1;
 
@@ -821,9 +835,7 @@ fn normalize_rust_attribute(text: &str, attrs: &mut Vec<String>) {
         attrs.push("bench".to_string());
     } else if inner.starts_with("cfg(") {
         // Extract cfg condition and normalize (#21)
-        let cfg_inner = inner
-            .trim_start_matches("cfg(")
-            .trim_end_matches(')');
+        let cfg_inner = inner.trim_start_matches("cfg(").trim_end_matches(')');
 
         if cfg_inner == "test" {
             attrs.push("cfg_test".to_string());
@@ -1714,9 +1726,15 @@ fn private_fn() {}
         let funcs = extract_functions(&tree);
 
         assert_eq!(funcs.len(), 2);
-        let public_fn = funcs.iter().find(|(n, _, _, _, _)| n == "public_fn").unwrap();
+        let public_fn = funcs
+            .iter()
+            .find(|(n, _, _, _, _)| n == "public_fn")
+            .unwrap();
         assert!(public_fn.3); // is_public
-        let private_fn = funcs.iter().find(|(n, _, _, _, _)| n == "private_fn").unwrap();
+        let private_fn = funcs
+            .iter()
+            .find(|(n, _, _, _, _)| n == "private_fn")
+            .unwrap();
         assert!(!private_fn.3); // not public
     }
 

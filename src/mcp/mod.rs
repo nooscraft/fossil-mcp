@@ -882,20 +882,24 @@ impl McpServer {
         // Post-filter by language if specified
         if let Some(langs) = &allowed_languages {
             all_groups.retain_mut(|g| {
-                g["instances"].as_array_mut().map(|instances| {
-                    instances.retain(|i| {
-                        if let Some(file) = i["file"].as_str() {
-                            if let Some(file_lang) = crate::core::Language::from_file_path(file) {
-                                langs.contains(&file_lang)
+                g["instances"]
+                    .as_array_mut()
+                    .map(|instances| {
+                        instances.retain(|i| {
+                            if let Some(file) = i["file"].as_str() {
+                                if let Some(file_lang) = crate::core::Language::from_file_path(file)
+                                {
+                                    langs.contains(&file_lang)
+                                } else {
+                                    false
+                                }
                             } else {
                                 false
                             }
-                        } else {
-                            false
-                        }
-                    });
-                    !instances.is_empty()
-                }).unwrap_or(false)
+                        });
+                        !instances.is_empty()
+                    })
+                    .unwrap_or(false)
             });
         }
 

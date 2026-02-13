@@ -181,10 +181,7 @@ fn dead_code_2() {}
     assert!(!result.passed, "Should fail with strict thresholds");
     assert!(!result.violations.is_empty(), "Should have violations");
     assert!(
-        result
-            .violations
-            .iter()
-            .any(|v| v.category == "dead_code"),
+        result.violations.iter().any(|v| v.category == "dead_code"),
         "Should have dead code violation"
     );
 }

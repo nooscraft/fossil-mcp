@@ -6,7 +6,9 @@ use serde_json::{json, Value};
 
 /// Format a check result as human-readable text.
 pub fn format_text(result: &CheckResult, use_colors: bool) -> String {
-    let colors = C { enabled: use_colors };
+    let colors = C {
+        enabled: use_colors,
+    };
     let mut output = String::new();
 
     // Status line
@@ -82,7 +84,10 @@ pub fn format_summary(result: &CheckResult, use_colors: bool) -> String {
 ///
 /// Takes existing SARIF JSON and adds `invocations` array with execution success status.
 /// This marks the run as failed in GitHub code scanning if thresholds were exceeded.
-pub fn add_sarif_invocations(sarif_json: &str, check_passed: bool) -> Result<String, serde_json::error::Error> {
+pub fn add_sarif_invocations(
+    sarif_json: &str,
+    check_passed: bool,
+) -> Result<String, serde_json::error::Error> {
     let mut sarif: Value = serde_json::from_str(sarif_json)?;
 
     // Add invocations array to indicate check result
@@ -100,7 +105,7 @@ pub fn add_sarif_invocations(sarif_json: &str, check_passed: bool) -> Result<Str
         }
     }
 
-    Ok(serde_json::to_string_pretty(&sarif)?)
+    serde_json::to_string_pretty(&sarif)
 }
 
 #[cfg(test)]
@@ -131,14 +136,12 @@ mod tests {
             clone_count: 2,
             scaffolding_count: 0,
             findings: vec![],
-            violations: vec![
-                crate::ci::ThresholdViolation {
-                    category: "dead_code".to_string(),
-                    threshold: 0,
-                    actual: 5,
-                    message: "Dead code exceeds threshold".to_string(),
-                },
-            ],
+            violations: vec![crate::ci::ThresholdViolation {
+                category: "dead_code".to_string(),
+                threshold: 0,
+                actual: 5,
+                message: "Dead code exceeds threshold".to_string(),
+            }],
             passed: false,
             diff_scope: None,
         };

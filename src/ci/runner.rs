@@ -5,10 +5,10 @@
 
 use std::path::Path;
 
+use crate::clones::detector::{CloneConfig, CloneDetector};
 use crate::config::{CiConfig, FossilConfig};
 use crate::core::{Error, Finding};
 use crate::dead_code::detector::{Detector as DeadCodeDetector, DetectorConfig};
-use crate::clones::detector::{CloneDetector, CloneConfig};
 
 use super::{CheckResult, DiffFilter, DiffScope, ThresholdEvaluator};
 
@@ -76,11 +76,10 @@ impl CiRunner {
     /// Run dead code detection, optionally filtered by diff.
     fn detect_dead_code(&self, path: &Path) -> Result<Vec<Finding>, Error> {
         // Build detector config
-        let entry_point_rules =
-            crate::config::ResolvedEntryPointRules::from_config(
-                &self.fossil_config.entry_points,
-                Some(path),
-            );
+        let entry_point_rules = crate::config::ResolvedEntryPointRules::from_config(
+            &self.fossil_config.entry_points,
+            Some(path),
+        );
 
         let config = DetectorConfig {
             include_tests: true,
@@ -153,18 +152,21 @@ impl CiRunner {
                     }
                 }
 
-                let location =
-                    crate::core::SourceLocation::new(
-                        instance.file.clone(),
-                        instance.start_line,
-                        instance.end_line,
-                        0,
-                        0,
-                    );
+                let location = crate::core::SourceLocation::new(
+                    instance.file.clone(),
+                    instance.start_line,
+                    instance.end_line,
+                    0,
+                    0,
+                );
 
                 let finding = Finding::new(
                     format!("CLONE-{:?}", group.clone_type),
-                    format!("Clone instance {} (similarity: {:.0}%)", idx + 1, group.similarity * 100.0),
+                    format!(
+                        "Clone instance {} (similarity: {:.0}%)",
+                        idx + 1,
+                        group.similarity * 100.0
+                    ),
                     crate::core::Severity::Medium,
                     location,
                 )

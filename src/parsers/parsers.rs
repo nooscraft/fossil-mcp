@@ -90,12 +90,7 @@ define_parser!(
     tree_sitter_scala::LANGUAGE,
     &["scala"]
 );
-define_parser!(
-    RParser,
-    Language::R,
-    tree_sitter_r::LANGUAGE,
-    &["r", "R"]
-);
+define_parser!(RParser, Language::R, tree_sitter_r::LANGUAGE, &["r", "R"]);
 
 // Dart, SQL, and Kotlin use older tree-sitter bindings incompatible with 0.24.
 // These return errors at initialization; the registry skips them gracefully.

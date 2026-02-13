@@ -90,7 +90,7 @@ mod tests {
     ) -> DiffFilter {
         DiffFilter {
             base_branch: base_branch.to_string(),
-            changed_files: changed_files.iter().map(|f| PathBuf::from(f)).collect(),
+            changed_files: changed_files.iter().map(PathBuf::from).collect(),
         }
     }
 
