@@ -15,6 +15,7 @@ pub struct FossilConfig {
     pub security: SecurityConfig,
     pub output: OutputConfig,
     pub entry_points: EntryPointConfig,
+    pub ci: CiConfig,
 }
 
 impl FossilConfig {
@@ -79,6 +80,28 @@ impl FossilConfig {
         }
         if let Ok(val) = std::env::var("FOSSIL_OUTPUT_FORMAT") {
             self.output.format = val;
+        }
+        // CI-specific overrides
+        if let Ok(val) = std::env::var("FOSSIL_CI_MAX_DEAD_CODE") {
+            if let Ok(n) = val.parse() {
+                self.ci.max_dead_code = Some(n);
+            }
+        }
+        if let Ok(val) = std::env::var("FOSSIL_CI_MAX_CLONES") {
+            if let Ok(n) = val.parse() {
+                self.ci.max_clones = Some(n);
+            }
+        }
+        if let Ok(val) = std::env::var("FOSSIL_CI_MIN_CONFIDENCE") {
+            self.ci.min_confidence = Some(val);
+        }
+        if let Ok(val) = std::env::var("FOSSIL_CI_FAIL_ON_SCAFFOLDING") {
+            self.ci.fail_on_scaffolding = Some(val.to_lowercase().parse().unwrap_or(false));
+        }
+        if let Ok(val) = std::env::var("FOSSIL_CI_MAX_SCAFFOLDING") {
+            if let Ok(n) = val.parse() {
+                self.ci.max_scaffolding = Some(n);
+            }
         }
     }
 }
@@ -211,6 +234,35 @@ impl Default for EntryPointConfig {
     }
 }
 
+/// CI/CD mode configuration.
+///
+/// Controls how Fossil behaves in CI pipelines, including thresholds for failing builds
+/// and diff-aware mode for PR-based analysis.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CiConfig {
+    /// Maximum number of dead code findings allowed before failing the check.
+    /// None = no threshold (always pass).
+    pub max_dead_code: Option<usize>,
+
+    /// Maximum number of clone groups allowed before failing the check.
+    /// None = no threshold (always pass).
+    pub max_clones: Option<usize>,
+
+    /// Minimum confidence level for counting findings (low, medium, high, certain).
+    /// If set, only findings at or above this confidence are counted toward thresholds.
+    /// None = count all findings.
+    pub min_confidence: Option<String>,
+
+    /// Maximum number of scaffolding artifacts allowed before failing the check.
+    /// None = no threshold (always pass).
+    pub max_scaffolding: Option<usize>,
+
+    /// Whether to fail the check if any scaffolding artifacts are found.
+    /// None = don't fail on scaffolding.
+    pub fail_on_scaffolding: Option<bool>,
+}
+
 /// Compiled entry point rules ready for fast matching.
 #[derive(Debug, Clone, Default)]
 pub struct ResolvedEntryPointRules {
@@ -290,6 +342,7 @@ impl ResolvedEntryPointRules {
             "serde_deserialize_with:",
             "extends:",
             "implements:",
+            "trait_default:", // Rust trait default implementations (#20)
         ] {
             rules.prefix_attributes.push(prefix.to_string());
         }
@@ -345,6 +398,13 @@ impl ResolvedEntryPointRules {
             "Parcelize",
             // TS/JS framework components (NestJS, Angular, etc.)
             "component",
+            // Rust/Python FFI and benchmarking (#18, #19)
+            "pymethods",
+            "pyfunction",
+            "pyclass",
+            "bench",
+            // Feature gates (#21)
+            "cfg_feature",
         ] {
             rules.exact_attributes.insert(attr.to_string());
         }

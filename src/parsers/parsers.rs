@@ -9,7 +9,7 @@
 use super::parser_macro::define_parser;
 use crate::core::Language;
 
-// 14 language parsers via macro (all using tree-sitter 0.24 compatible LANGUAGE constant)
+// 15 language parsers via macro (all using tree-sitter 0.24 compatible LANGUAGE constant)
 define_parser!(
     PythonParser,
     Language::Python,
@@ -90,6 +90,7 @@ define_parser!(
     tree_sitter_scala::LANGUAGE,
     &["scala"]
 );
+define_parser!(RParser, Language::R, tree_sitter_r::LANGUAGE, &["r", "R"]);
 
 // Dart, SQL, and Kotlin use older tree-sitter bindings incompatible with 0.24.
 // These return errors at initialization; the registry skips them gracefully.

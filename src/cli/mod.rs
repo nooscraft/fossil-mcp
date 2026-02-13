@@ -155,7 +155,7 @@ fn banner_string(use_colors: bool) -> String {
     out.push_str(&format!(
         "{d}  ────────────────────────────────────────────────────────────────{r}\n"
     ));
-    out.push_str(&format!("{d}  Version:{r} {y}{version}{r}    {d}Languages:{r} {w}15{r}    {d}Analyses:{r} {w}dead code · clones · scaffolding · temp files{r}\n"));
+    out.push_str(&format!("{d}  Version:{r} {y}{version}{r}    {d}Languages:{r} {w}16{r}    {d}Analyses:{r} {w}dead code · clones · scaffolding · temp files{r}\n"));
     out.push_str(&format!(
         "{d}  ────────────────────────────────────────────────────────────────{r}\n"
     ));
@@ -230,6 +230,11 @@ enum Commands {
         /// Minimum lines of code for a finding to be reported
         #[arg(long, default_value = "0")]
         min_lines: usize,
+
+        /// Filter by programming language(s): rust, python, typescript, etc.
+        /// Use comma-separated list for multiple: rust,python,go
+        #[arg(long)]
+        language: Option<String>,
     },
 
     /// Detect code clones (duplicated code)
@@ -249,6 +254,11 @@ enum Commands {
         /// Clone types to detect: type1, type2, type3 (comma-separated)
         #[arg(long, default_value = "type1,type2,type3")]
         types: String,
+
+        /// Filter by programming language(s): rust, python, typescript, etc.
+        /// Use comma-separated list for multiple: rust,python,go
+        #[arg(long)]
+        language: Option<String>,
     },
 
     /// Run all analyses (dead code + clones)
@@ -256,6 +266,39 @@ enum Commands {
         /// Path to analyze (defaults to current directory)
         #[arg(default_value = ".")]
         path: PathBuf,
+    },
+
+    /// CI/CD mode: fail builds on configurable thresholds
+    #[command(name = "check")]
+    Check {
+        /// Path to analyze (defaults to current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Only check files changed vs base branch (enables diff-aware mode)
+        /// Example: --diff main or --diff origin/main
+        #[arg(long)]
+        diff: Option<String>,
+
+        /// Override max dead code threshold from config
+        #[arg(long)]
+        max_dead_code: Option<usize>,
+
+        /// Override max clones threshold from config
+        #[arg(long)]
+        max_clones: Option<usize>,
+
+        /// Override max scaffolding threshold from config
+        #[arg(long)]
+        max_scaffolding: Option<usize>,
+
+        /// Minimum confidence level for counting findings (low, medium, high, certain)
+        #[arg(long)]
+        min_confidence: Option<String>,
+
+        /// Fail if any scaffolding artifacts found
+        #[arg(long)]
+        fail_on_scaffolding: bool,
     },
 
     /// Manage security rules
@@ -323,11 +366,13 @@ pub fn run() {
             include_tests,
             min_confidence,
             min_lines,
+            language,
         } => commands::dead_code::run(
             &path,
             include_tests,
             &min_confidence,
             min_lines,
+            language.as_deref(),
             &cli.format,
             cli.quiet,
         ),
@@ -337,9 +382,39 @@ pub fn run() {
             min_lines,
             similarity,
             types,
-        } => commands::clones::run(&path, min_lines, similarity, &types, &cli.format, cli.quiet),
+            language,
+        } => commands::clones::run(
+            &path,
+            min_lines,
+            similarity,
+            &types,
+            language.as_deref(),
+            &cli.format,
+            cli.quiet,
+        ),
 
         Commands::Scan { path } => commands::scan::run(&path, &config, &cli.format, cli.quiet),
+
+        Commands::Check {
+            path,
+            diff,
+            max_dead_code,
+            max_clones,
+            max_scaffolding,
+            min_confidence,
+            fail_on_scaffolding,
+        } => commands::check::run(
+            &path,
+            diff.as_deref(),
+            max_dead_code,
+            max_clones,
+            max_scaffolding,
+            min_confidence.as_deref(),
+            fail_on_scaffolding,
+            &config,
+            &cli.format,
+            cli.quiet,
+        ),
 
         Commands::Rules { action } => match action {
             RulesAction::List => commands::rules::list(),

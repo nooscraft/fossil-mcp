@@ -2,7 +2,7 @@
 
 **The code quality toolkit for the vibe coding era.**
 
-Static analysis that finds the mess vibe coding leaves behind — dead code, duplicated logic, scaffolding artifacts, and disconnected functions — across 15 languages.
+Static analysis that finds the mess vibe coding leaves behind — dead code, duplicated logic, scaffolding artifacts, and disconnected functions — across 16 languages.
 
 **[fossil-mcp.com](https://fossil-mcp.com)**
 
@@ -60,7 +60,7 @@ Fossil MCP is a static analysis toolkit purpose-built for vibe-coded projects. I
 - **Cross-file analysis.** Resolves imports, barrel re-exports, and class hierarchies to find dead code across module boundaries.
 - **Framework-aware.** Auto-detects React, Next.js, Django, Spring, Axum, and more — won't flag lifecycle methods as dead code.
 - **Zero configuration.** Works out of the box. Config file is optional.
-- **15 languages.** One tool for polyglot codebases.
+- **16 languages.** One tool for polyglot codebases.
 
 ---
 
@@ -278,6 +278,12 @@ fossil-mcp scan /path/to/project --format json
 
 # Start MCP server explicitly
 fossil-mcp mcp
+
+# CI/CD check with configurable thresholds
+fossil-mcp check --max-dead-code 10 --max-clones 5
+
+# Diff-aware check (analyze only changed files)
+fossil-mcp check --diff origin/main --format sarif
 ```
 
 The CLI provides an interactive dashboard with language breakdown, confidence summary, and file hotspots. When running in a terminal, you get a REPL to explore findings interactively:
@@ -311,7 +317,7 @@ fossil> export sarif   # Export full SARIF report
 | Kotlin | `.kt` |
 | Scala | `.scala` |
 | Bash | `.sh`, `.bash` |
-| Lua | `.lua` |
+| R | `.r`, `.R` |
 
 ---
 
@@ -368,10 +374,106 @@ Presets are auto-detected from project dependencies. They tell Fossil which func
 
 ---
 
+## CI/CD Integration
+
+Fossil includes a **`check`** command for CI/CD pipelines. It fails builds when code quality thresholds are exceeded, helping teams enforce code standards and prevent technical debt from accumulating.
+
+### Basic Usage
+
+```bash
+# Check against configured thresholds
+fossil-mcp check
+
+# Override thresholds via CLI
+fossil-mcp check --max-dead-code 10 --max-clones 5
+
+# Diff-aware mode (only analyze changed files in PR)
+fossil-mcp check --diff origin/main
+
+# Generate SARIF for GitHub code scanning
+fossil-mcp check --diff origin/main --format sarif
+
+# Quiet mode (no diagnostic output)
+fossil-mcp check --quiet
+```
+
+### Configuration
+
+Add a `[ci]` section to `fossil.toml`:
+
+```toml
+[ci]
+max_dead_code = 10           # Maximum dead code findings (0 = fail on any)
+max_clones = 5               # Maximum clone findings
+max_scaffolding = 3          # Maximum scaffolding findings
+min_confidence = "medium"    # Minimum confidence (low|medium|high|certain)
+fail_on_scaffolding = false  # Fail if any scaffolding found
+```
+
+### GitHub Actions Integration
+
+Create `.github/workflows/fossil-check.yml`:
+
+```yaml
+name: Fossil CI Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  fossil:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Fossil
+        run: cargo install fossil-mcp
+
+      - name: Run Fossil check
+        run: |
+          fossil-mcp check \
+            --diff origin/${{ github.base_ref || 'main' }} \
+            --format sarif \
+            > fossil-results.sarif
+
+      - name: Upload to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: fossil-results.sarif
+```
+
+### How It Works
+
+1. **Scans** the project using the same analysis engine as `scan`
+2. **Optionally filters** to only changed files (via `--diff branch`)
+3. **Evaluates** against configured thresholds
+4. **Reports** findings as text, JSON, or SARIF
+5. **Exits** with code 1 if thresholds exceeded (fails CI build)
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | All thresholds passed ✓ |
+| 1 | Threshold exceeded (build fails) |
+| 2 | Error (missing git, invalid config, etc.) |
+
+For complete examples, see [examples/fossil.toml](examples/fossil.toml) and [examples/fossil-check.yml](examples/fossil-check.yml).
+
+---
+
 ## How It Works
 
 1. **Scan** — walks project files, respects `.gitignore`, skips vendored/generated code
-2. **Parse** — builds tree-sitter ASTs for each source file (15 languages)
+2. **Parse** — builds tree-sitter ASTs for each source file (16 languages)
 3. **Extract** — pulls functions, calls, imports, attributes, and class hierarchy from ASTs
 4. **Graph** — builds a cross-file `CodeGraph` with import resolution and barrel re-export support
 5. **Analyze** — detects entry points (via heuristics + framework presets), runs reachability analysis, identifies dead code and clones

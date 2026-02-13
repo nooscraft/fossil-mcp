@@ -55,6 +55,9 @@ fn extract_recursive(
         Language::Rust => {
             extract_rust(node, source, kind, &text, block_id, stmt_index, defs, uses);
         }
+        Language::R => {
+            extract_r(node, source, kind, &text, block_id, stmt_index, defs, uses);
+        }
         _ => {
             // Generic: treat assignments as defs, identifiers as uses
             extract_generic(node, source, kind, &text, block_id, stmt_index, defs, uses);
@@ -290,6 +293,53 @@ fn extract_rust(
                 uses.push(make_use(name, node, block_id, stmt_index));
             }
         }
+        _ => {}
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn extract_r(
+    node: tree_sitter::Node<'_>,
+    source: &str,
+    kind: &str,
+    _text: &str,
+    block_id: CfgNodeId,
+    stmt_index: usize,
+    defs: &mut Vec<DefPoint>,
+    uses: &mut Vec<UsePoint>,
+) {
+    match kind {
+        // Left assignment: x <- value or x = value
+        "left_assignment" => {
+            if let Some(lhs) = node.child_by_field_name("name") {
+                if let Ok(name) = lhs.utf8_text(source.as_bytes()) {
+                    if !name.is_empty() && !name.starts_with('.') {
+                        defs.push(make_def(name, lhs, block_id, stmt_index));
+                    }
+                }
+            }
+        }
+
+        // Right assignment: value -> x
+        "right_assignment" => {
+            if let Some(rhs) = node.child_by_field_name("name") {
+                if let Ok(name) = rhs.utf8_text(source.as_bytes()) {
+                    if !name.is_empty() && !name.starts_with('.') {
+                        defs.push(make_def(name, rhs, block_id, stmt_index));
+                    }
+                }
+            }
+        }
+
+        // Identifier references
+        "identifier" => {
+            if let Ok(name) = node.utf8_text(source.as_bytes()) {
+                if !name.is_empty() && !name.starts_with('.') {
+                    uses.push(make_use(name, node, block_id, stmt_index));
+                }
+            }
+        }
+
         _ => {}
     }
 }

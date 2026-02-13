@@ -1,3 +1,4 @@
+pub mod check;
 pub mod clones;
 pub mod dead_code;
 pub mod rules;

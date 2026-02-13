@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 // Language
 // =============================================================================
 
-/// Programming languages supported by Fossil (17 languages).
+/// Programming languages supported by Fossil (18 languages).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Language {
@@ -31,6 +31,7 @@ pub enum Language {
     Bash,
     Scala,
     Dart,
+    R,
 }
 
 impl Language {
@@ -54,6 +55,7 @@ impl Language {
             Language::Bash => &["sh", "bash"],
             Language::Scala => &["scala"],
             Language::Dart => &["dart"],
+            Language::R => &["r", "R"],
         }
     }
 
@@ -78,6 +80,7 @@ impl Language {
             "sh" | "bash" => Some(Language::Bash),
             "scala" => Some(Language::Scala),
             "dart" => Some(Language::Dart),
+            "r" => Some(Language::R),
             _ => None,
         }
     }
@@ -109,6 +112,7 @@ impl Language {
             Language::Bash => "Bash",
             Language::Scala => "Scala",
             Language::Dart => "Dart",
+            Language::R => "R",
         }
     }
 
@@ -152,7 +156,54 @@ impl Language {
             Language::Bash,
             Language::Scala,
             Language::Dart,
+            Language::R,
         ]
+    }
+
+    /// Parse language from its display name (case-insensitive).
+    /// Examples: "rust", "Rust", "RUST" → Language::Rust
+    pub fn from_name(name: &str) -> Option<Self> {
+        let lower = name.to_lowercase();
+        Self::all()
+            .iter()
+            .find(|lang| lang.name().to_lowercase() == lower)
+            .copied()
+    }
+
+    /// Parse comma-separated language list, with validation.
+    /// Returns languages and list of unrecognized names.
+    /// Example: "rust,python,invalid" → (vec![Rust, Python], vec!["invalid"])
+    pub fn parse_list(input: &str) -> (Vec<Language>, Vec<String>) {
+        let mut languages = Vec::new();
+        let mut invalid = Vec::new();
+
+        for name in input.split(',') {
+            let name = name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            match Self::from_name(name) {
+                Some(lang) => {
+                    if !languages.contains(&lang) {
+                        languages.push(lang);
+                    }
+                }
+                None => invalid.push(name.to_string()),
+            }
+        }
+
+        (languages, invalid)
+    }
+
+    /// Determine language from file path by extension.
+    /// Returns None if extension is not recognized.
+    pub fn from_file_path<P: AsRef<std::path::Path>>(path: P) -> Option<Self> {
+        let path = path.as_ref();
+        let ext = path.extension()?.to_str()?;
+        Self::all()
+            .iter()
+            .find(|lang| lang.extensions().contains(&ext))
+            .copied()
     }
 }
 
@@ -873,7 +924,7 @@ mod tests {
 
     #[test]
     fn test_language_all() {
-        assert_eq!(Language::all().len(), 17);
+        assert_eq!(Language::all().len(), 18);
     }
 
     #[test]

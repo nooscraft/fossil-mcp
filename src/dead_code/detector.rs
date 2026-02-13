@@ -872,6 +872,17 @@ impl Detector {
     ) {
         let kind = node.node_type();
 
+        // Special handling for macro invocations - recurse into token trees (#22)
+        // Variables inside assert!(), println!(), etc. are used and should not be flagged as unused
+        if kind == "macro_invocation" {
+            for child in node.children() {
+                if child.node_type() == "token_tree" {
+                    Self::collect_uses(child.as_ref(), uses, language);
+                }
+            }
+            return;
+        }
+
         // Skip type annotation/reference nodes
         if matches!(
             kind,

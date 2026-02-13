@@ -37,6 +37,7 @@ impl ParserRegistry {
         try_register!(SwiftParser);
         try_register!(BashParser);
         try_register!(ScalaParser);
+        try_register!(RParser);
         // Dart, SQL, Kotlin use incompatible tree-sitter bindings — skipped
 
         if parsers.is_empty() {

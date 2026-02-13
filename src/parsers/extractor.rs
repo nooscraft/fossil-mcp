@@ -6,19 +6,42 @@
 
 use super::ZeroCopyParseTree;
 
-/// Extract function/method definitions as (name, start_line, end_line, is_public).
-pub fn extract_functions(tree: &ZeroCopyParseTree) -> Vec<(String, usize, usize, bool)> {
+/// Extract function/method definitions as (name, start_line, end_line, is_public, node_kind).
+pub fn extract_functions(
+    tree: &ZeroCopyParseTree,
+) -> Vec<(String, usize, usize, bool, crate::core::NodeKind)> {
     let mut results = Vec::new();
     let root = tree.ts_tree().root_node();
     collect_functions(root, tree.source_code(), tree.language(), &mut results);
     results
 }
 
+fn determine_node_kind(ts_kind: &str, _language: crate::core::Language) -> crate::core::NodeKind {
+    use crate::core::NodeKind;
+    match ts_kind {
+        "struct_item" | "struct_declaration" => NodeKind::Struct,
+        "class_definition" | "class_declaration" => NodeKind::Class,
+        "trait_item" => NodeKind::Trait,
+        "enum_item" | "enum_declaration" => NodeKind::Struct, // treat enums like structs
+        "interface_declaration" => NodeKind::Trait,
+        "function_item"
+        | "function_definition"
+        | "function_declaration"
+        | "method_definition"
+        | "method_declaration"
+        | "method"
+        | "function"
+        | "arrow_function"
+        | "func_literal" => NodeKind::Function,
+        _ => NodeKind::Function, // fallback for anything we don't explicitly handle
+    }
+}
+
 fn collect_functions(
     node: tree_sitter::Node,
     source: &str,
     language: crate::core::Language,
-    results: &mut Vec<(String, usize, usize, bool)>,
+    results: &mut Vec<(String, usize, usize, bool, crate::core::NodeKind)>,
 ) {
     let kind = node.kind();
 
@@ -28,7 +51,8 @@ fn collect_functions(
             let start_line = node.start_position().row + 1;
             let end_line = node.end_position().row + 1;
             let is_public = check_visibility(node, source, language, &name);
-            results.push((name, start_line, end_line, is_public));
+            let node_kind = determine_node_kind(kind, language);
+            results.push((name, start_line, end_line, is_public, node_kind));
         }
         // Still recurse into the body for nested function definitions
         let mut cursor = node.walk();
@@ -57,7 +81,8 @@ fn collect_functions(
             let start_line = node.start_position().row + 1; // 1-indexed
             let end_line = node.end_position().row + 1;
             let is_public = check_visibility(node, source, language, &name);
-            results.push((name, start_line, end_line, is_public));
+            let node_kind = determine_node_kind(kind, language);
+            results.push((name, start_line, end_line, is_public, node_kind));
         }
     }
 
@@ -71,7 +96,8 @@ fn collect_functions(
             let start_line = node.start_position().row + 1;
             let end_line = node.end_position().row + 1;
             let is_public = check_visibility(node, source, language, &name);
-            results.push((name, start_line, end_line, is_public));
+            let node_kind = determine_node_kind(kind, language);
+            results.push((name, start_line, end_line, is_public, node_kind));
         }
     }
 
@@ -109,6 +135,15 @@ fn extract_name_from_def(node: tree_sitter::Node, source: &str) -> Option<String
         }
         return Some(source[decl.byte_range()].to_string());
     }
+
+    // Fallback for R: first identifier child is the function name
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "identifier" {
+            return Some(source[child.byte_range()].to_string());
+        }
+    }
+
     None
 }
 
@@ -155,6 +190,9 @@ fn check_visibility(
         // Ruby: functions starting with _ or inside private block are private
         crate::core::Language::Ruby => !name.starts_with('_'),
 
+        // R: functions starting with . are private convention, others are public
+        crate::core::Language::R => !name.starts_with('.'),
+
         // PHP: check for public/private/protected keywords
         crate::core::Language::PHP => {
             let node_text = &source[node.byte_range()];
@@ -189,11 +227,17 @@ fn check_visibility(
 pub fn extract_calls(tree: &ZeroCopyParseTree) -> Vec<(usize, String)> {
     let mut results = Vec::new();
     let root = tree.ts_tree().root_node();
-    collect_calls(root, tree.source_code(), &mut results);
+    collect_calls(root, tree.source_code(), tree.language(), &mut results);
     results
 }
 
-fn collect_calls(node: tree_sitter::Node, source: &str, results: &mut Vec<(usize, String)>) {
+#[allow(clippy::only_used_in_recursion)]
+fn collect_calls(
+    node: tree_sitter::Node,
+    source: &str,
+    language: crate::core::Language,
+    results: &mut Vec<(usize, String)>,
+) {
     let kind = node.kind();
     let line = node.start_position().row + 1;
 
@@ -317,12 +361,32 @@ fn collect_calls(node: tree_sitter::Node, source: &str, results: &mut Vec<(usize
             }
         }
 
+        // R: pipe (data |> filter() or data %>% mutate())
+        "pipe" => {
+            if let Some(rhs) = node.child_by_field_name("rhs") {
+                let callee = extract_callee_name(rhs, source);
+                if !callee.is_empty() {
+                    results.push((line, callee));
+                }
+            }
+        }
+
+        // R: namespace operators (pkg::func() or pkg:::internal())
+        "namespace_get" | "namespace_get_internal" => {
+            if let Some(name) = node.child_by_field_name("name") {
+                let callee = source[name.byte_range()].to_string();
+                if !callee.is_empty() {
+                    results.push((line, callee));
+                }
+            }
+        }
+
         _ => {}
     }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_calls(child, source, results);
+        collect_calls(child, source, language, results);
     }
 }
 
@@ -541,6 +605,29 @@ fn collect_attributes(
                 }
             }
 
+            // Add trait default context for Rust functions with bodies inside trait definitions (#20)
+            if is_func_def && language == crate::core::Language::Rust {
+                if let Some(parent) = node.parent() {
+                    if parent.kind() == "trait_item" {
+                        // This function is inside a trait definition
+                        // Check if it has a body (default implementation)
+                        let mut has_body = false;
+                        let mut cursor = node.walk();
+                        for child in node.children(&mut cursor) {
+                            if child.kind() == "block" {
+                                has_body = true;
+                                break;
+                            }
+                        }
+                        if has_body {
+                            if let Some(trait_name) = extract_name_from_def(parent, source) {
+                                attrs.push(format!("trait_default:{trait_name}"));
+                            }
+                        }
+                    }
+                }
+            }
+
             // Propagate cfg(test) to functions inside #[cfg(test)] mod blocks
             if current_cfg_test && is_func_def && !attrs.contains(&"cfg_test".to_string()) {
                 attrs.push("cfg_test".to_string());
@@ -743,6 +830,21 @@ fn normalize_rust_attribute(text: &str, attrs: &mut Vec<String>) {
         attrs.push("test".to_string());
     } else if inner == "cfg(test)" {
         attrs.push("cfg_test".to_string());
+    } else if inner == "bench" {
+        // Criterion benchmark functions (#18)
+        attrs.push("bench".to_string());
+    } else if inner.starts_with("cfg(") {
+        // Extract cfg condition and normalize (#21)
+        let cfg_inner = inner.trim_start_matches("cfg(").trim_end_matches(')');
+
+        if cfg_inner == "test" {
+            attrs.push("cfg_test".to_string());
+        } else if cfg_inner.starts_with("feature") {
+            attrs.push("cfg_feature".to_string());
+        } else {
+            // Generic cfg - mark as conditional entry point
+            attrs.push("cfg".to_string());
+        }
     } else if inner.starts_with("derive(") {
         let derive_inner = inner.trim_start_matches("derive(").trim_end_matches(')');
         for trait_name in derive_inner.split(',') {
@@ -985,6 +1087,64 @@ fn collect_imports(
                         }
                     }
                 }
+            }
+        }
+        crate::core::Language::R => {
+            match kind {
+                // library(pkg) or require(pkg)
+                "call" => {
+                    if let Some(func_node) = node.child_by_field_name("function") {
+                        let func_name = source[func_node.byte_range()].to_string();
+
+                        if func_name == "library" || func_name == "require" {
+                            // Extract package name from first argument
+                            let mut cursor = node.walk();
+                            for child in node.children(&mut cursor) {
+                                if child.kind() == "argument_list" {
+                                    // Get first argument (package name)
+                                    if let Some(arg) = child.named_child(0) {
+                                        let pkg = source[arg.byte_range()]
+                                            .trim_matches(|c| c == '"' || c == '\'')
+                                            .to_string();
+                                        if !pkg.is_empty() {
+                                            // Import as: pkg (imported_as: pkg, source_module: pkg)
+                                            results.push((pkg.clone(), pkg, None, line));
+                                        }
+                                    }
+                                }
+                            }
+                        } else if func_name == "source" {
+                            // source("script.R") - file-level imports
+                            let mut cursor = node.walk();
+                            for child in node.children(&mut cursor) {
+                                if child.kind() == "argument_list" {
+                                    if let Some(arg) = child.named_child(0) {
+                                        let file_path = source[arg.byte_range()]
+                                            .trim_matches(|c| c == '"' || c == '\'')
+                                            .to_string();
+                                        if !file_path.is_empty() {
+                                            // Import as wildcard from source file
+                                            results.push(("*".to_string(), file_path, None, line));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // pkg::func - implicit namespace import
+                "namespace_get" | "namespace_get_internal" => {
+                    if let Some(pkg_node) = node.child_by_field_name("namespace") {
+                        let pkg = source[pkg_node.byte_range()].to_string();
+                        if !pkg.is_empty() {
+                            // Import as wildcard from package
+                            results.push(("*".to_string(), pkg, None, line));
+                        }
+                    }
+                }
+
+                _ => {}
             }
         }
         _ => {}
@@ -1533,7 +1693,7 @@ class MyClass:
         let tree = parser.parse_to_tree(source).unwrap();
         let funcs = extract_functions(&tree);
 
-        let names: Vec<&str> = funcs.iter().map(|(n, _, _, _)| n.as_str()).collect();
+        let names: Vec<&str> = funcs.iter().map(|(n, _, _, _, _)| n.as_str()).collect();
         assert!(names.contains(&"hello"));
         assert!(names.contains(&"_private"));
         assert!(names.contains(&"MyClass"));
@@ -1566,9 +1726,15 @@ fn private_fn() {}
         let funcs = extract_functions(&tree);
 
         assert_eq!(funcs.len(), 2);
-        let public_fn = funcs.iter().find(|(n, _, _, _)| n == "public_fn").unwrap();
+        let public_fn = funcs
+            .iter()
+            .find(|(n, _, _, _, _)| n == "public_fn")
+            .unwrap();
         assert!(public_fn.3); // is_public
-        let private_fn = funcs.iter().find(|(n, _, _, _)| n == "private_fn").unwrap();
+        let private_fn = funcs
+            .iter()
+            .find(|(n, _, _, _, _)| n == "private_fn")
+            .unwrap();
         assert!(!private_fn.3); // not public
     }
 
@@ -1796,7 +1962,7 @@ from collections import defaultdict as dd
                 .unwrap();
         let tree = parser.parse_to_tree(&source).unwrap();
         let funcs = extract_functions(&tree);
-        let names: Vec<&str> = funcs.iter().map(|(n, _, _, _)| n.as_str()).collect();
+        let names: Vec<&str> = funcs.iter().map(|(n, _, _, _, _)| n.as_str()).collect();
         eprintln!("Ruby auth.rb extracted functions: {:?}", names);
         // Top-level functions
         assert!(
@@ -1836,7 +2002,7 @@ from collections import defaultdict as dd
         .unwrap();
         let tree = parser.parse_to_tree(&source).unwrap();
         let funcs = extract_functions(&tree);
-        let names: Vec<&str> = funcs.iter().map(|(n, _, _, _)| n.as_str()).collect();
+        let names: Vec<&str> = funcs.iter().map(|(n, _, _, _, _)| n.as_str()).collect();
         eprintln!("Java UserService.java extracted functions: {:?}", names);
         // All methods
         assert!(

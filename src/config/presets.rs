@@ -272,6 +272,152 @@ static PRESETS: &[Preset] = &[
         entry_functions: &[],
         lifecycle_methods: &[],
     },
+    // Rust benchmarking framework
+    Preset {
+        name: "criterion",
+        detect_files: &[],
+        detect_deps: &["criterion"],
+        entry_attributes: &["bench"],
+        entry_functions: &["criterion_main", "criterion_group"],
+        lifecycle_methods: &[],
+    },
+    // R: Shiny web framework
+    Preset {
+        name: "shiny",
+        detect_files: &[],
+        detect_deps: &["shiny"],
+        entry_attributes: &[],
+        entry_functions: &["shinyApp", "runApp"],
+        lifecycle_methods: &[
+            "renderUI",
+            "renderPlot",
+            "renderTable",
+            "renderDataTable",
+            "renderText",
+            "renderPrint",
+            "renderImage",
+            "renderDT",
+            "reactive",
+            "observe",
+            "observeEvent",
+            "eventReactive",
+            "reactiveVal",
+            "reactiveValues",
+            "moduleServer",
+        ],
+    },
+    // R: tidyverse/dplyr data manipulation
+    Preset {
+        name: "tidyverse",
+        detect_files: &[],
+        detect_deps: &["tidyverse", "dplyr", "ggplot2", "tidyr", "readr", "purrr"],
+        entry_attributes: &[],
+        entry_functions: &[],
+        lifecycle_methods: &[
+            // dplyr verbs
+            "select",
+            "filter",
+            "mutate",
+            "arrange",
+            "summarise",
+            "summarize",
+            "group_by",
+            "ungroup",
+            "left_join",
+            "right_join",
+            "inner_join",
+            "full_join",
+            "semi_join",
+            "anti_join",
+            "bind_rows",
+            "bind_cols",
+            // tidyr
+            "pivot_longer",
+            "pivot_wider",
+            "gather",
+            "spread",
+            "separate",
+            "unite",
+            "nest",
+            "unnest",
+            // readr
+            "read_csv",
+            "read_tsv",
+            "write_csv",
+            "read_excel",
+        ],
+    },
+    // R: R6 object-oriented programming system
+    Preset {
+        name: "r6",
+        detect_files: &[],
+        detect_deps: &["R6"],
+        entry_attributes: &[],
+        entry_functions: &[],
+        lifecycle_methods: &[
+            "initialize",
+            "print",
+            "finalize",
+            "clone",
+            "set",
+            "get",
+            "format",
+            "as.character",
+            "as.list",
+            "as.data.frame",
+        ],
+    },
+    // R: S3 generic functions (base OOP)
+    Preset {
+        name: "s3",
+        detect_files: &[],
+        detect_deps: &[],
+        entry_attributes: &[],
+        entry_functions: &[],
+        lifecycle_methods: &[
+            "print",
+            "summary",
+            "plot",
+            "predict",
+            "coef",
+            "residuals",
+            "fitted",
+            "confint",
+            "logLik",
+            "formula",
+            "terms",
+            "model.frame",
+            "model.matrix",
+            "anova",
+        ],
+    },
+    // R: data.table high-performance data manipulation
+    Preset {
+        name: "data.table",
+        detect_files: &[],
+        detect_deps: &["data.table"],
+        entry_attributes: &[],
+        entry_functions: &[],
+        lifecycle_methods: &[
+            "setDT",
+            "data.table",
+            ":=",
+            "merge",
+            "rbindlist",
+            "set",
+            "setkeyv",
+            "setorder",
+        ],
+    },
+    // Python FFI bindings framework
+    Preset {
+        name: "pyo3",
+        detect_files: &[],
+        detect_deps: &["pyo3"],
+        entry_attributes: &["pymethods", "pyfunction", "pyclass"],
+        entry_functions: &[],
+        lifecycle_methods: &[],
+    },
 ];
 
 /// Look up a preset by name.
@@ -308,6 +454,20 @@ pub fn auto_detect_presets(root: &Path) -> Vec<String> {
                 }
             }
         }
+
+        // Check DESCRIPTION file for R deps
+        if !preset.detect_deps.is_empty() {
+            if let Some(deps) = read_description_deps(root) {
+                if preset
+                    .detect_deps
+                    .iter()
+                    .any(|d| deps.contains(&d.to_string()))
+                {
+                    active.push(preset.name.to_string());
+                    continue;
+                }
+            }
+        }
     }
 
     active
@@ -328,6 +488,45 @@ fn read_package_json_deps(root: &Path) -> Option<Vec<String>> {
         }
     }
     Some(deps)
+}
+
+/// Read dependency names from DESCRIPTION file (if it exists).
+/// Format is like: "Imports: package1, package2, ..."
+fn read_description_deps(root: &Path) -> Option<Vec<String>> {
+    let desc_path = root.join("DESCRIPTION");
+    let content = std::fs::read_to_string(desc_path).ok()?;
+
+    let mut deps = Vec::new();
+
+    // Parse DESCRIPTION file format:
+    // Imports: pkg1, pkg2, pkg3
+    // Depends: base, pkg4
+    for line in content.lines() {
+        if line.starts_with("Imports:") || line.starts_with("Depends:") {
+            // Extract packages after the colon
+            if let Some(packages_str) = line.split(':').nth(1) {
+                // Split by comma and extract package names
+                for pkg in packages_str.split(',') {
+                    let pkg_name = pkg
+                        .trim()
+                        .split('(')
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if !pkg_name.is_empty() && pkg_name != "R" {
+                        deps.push(pkg_name);
+                    }
+                }
+            }
+        }
+    }
+
+    if deps.is_empty() {
+        None
+    } else {
+        Some(deps)
+    }
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use crate::core::Language;
 use crate::dead_code::detector::{Detector, DetectorConfig};
 
 use super::{dead_code_to_findings, format_findings, parse_confidence};
@@ -11,12 +12,32 @@ pub fn run(
     include_tests: bool,
     min_confidence: &str,
     min_lines: usize,
+    language: Option<&str>,
     format: &str,
     quiet: bool,
 ) -> Result<String, crate::core::Error> {
     if !quiet {
         eprintln!("Analyzing dead code in: {}", path.display());
     }
+
+    // Parse and validate language filter
+    let allowed_languages = if let Some(lang_str) = language {
+        let (langs, invalid) = Language::parse_list(lang_str);
+        if !invalid.is_empty() {
+            return Err(crate::core::Error::analysis(format!(
+                "Invalid language(s): {}. Valid options: {}",
+                invalid.join(", "),
+                Language::all()
+                    .iter()
+                    .map(|l| l.name())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        }
+        Some(langs)
+    } else {
+        None
+    };
 
     // Load project config for entry point rules
     let fossil_config = crate::config::FossilConfig::discover(path);
@@ -50,7 +71,18 @@ pub fn run(
         );
     }
 
-    let findings = dead_code_to_findings(&result.findings);
+    let mut findings = dead_code_to_findings(&result.findings);
+
+    // Filter by language if specified
+    if let Some(langs) = allowed_languages {
+        findings.retain(|f| {
+            if let Some(file_lang) = Language::from_file_path(&f.location.file) {
+                langs.contains(&file_lang)
+            } else {
+                false
+            }
+        });
+    }
 
     if !quiet && findings.is_empty() {
         eprintln!("No dead code found.");

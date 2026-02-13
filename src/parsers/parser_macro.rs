@@ -116,7 +116,7 @@ macro_rules! define_parser {
                     crate::core::ParsedFile::new(file_path.to_string(), $lang, source.to_string());
 
                 // Build nodes from extracted functions
-                for (name, start_line, end_line, is_public) in &functions {
+                for (name, start_line, end_line, is_public, node_kind) in &functions {
                     let vis = if *is_public {
                         crate::core::Visibility::Public
                     } else {
@@ -131,7 +131,7 @@ macro_rules! define_parser {
                     );
                     let mut node = crate::core::CodeNode::new(
                         name.clone(),
-                        crate::core::NodeKind::Function,
+                        *node_kind,
                         loc,
                         $lang,
                         vis,
@@ -215,8 +215,8 @@ macro_rules! define_parser {
                 // First, build a map: class_name -> (start_line, end_line)
                 let class_ranges: std::collections::HashMap<&str, (usize, usize)> = functions
                     .iter()
-                    .filter(|(name, _, _, _)| class_parent_map.contains_key(name.as_str()))
-                    .map(|(name, start, end, _)| (name.as_str(), (*start, *end)))
+                    .filter(|(name, _, _, _, _)| class_parent_map.contains_key(name.as_str()))
+                    .map(|(name, start, end, _, _)| (name.as_str(), (*start, *end)))
                     .collect();
 
                 for node in &mut parsed.nodes {
@@ -265,11 +265,11 @@ macro_rules! define_parser {
                 } else {
                     // Non-Rust: build class ranges for ALL classes (not just those with parents)
                     let all_class_ranges: Vec<(&str, usize, usize)> = functions.iter()
-                        .filter(|(name, _, _, _)| {
+                        .filter(|(name, _, _, _, _)| {
                             // Heuristic: classes start with uppercase (Python/TS/Java/C#/Ruby/PHP)
-                            name.chars().next().is_some_and(|c| c.is_uppercase())
+                            name.chars().next().is_some_and(|c: char| c.is_uppercase())
                         })
-                        .map(|(name, start, end, _)| (name.as_str(), *start, *end))
+                        .map(|(name, start, end, _, _)| (name.as_str(), *start, *end))
                         .collect();
 
                     for node in &mut parsed.nodes {
@@ -450,10 +450,10 @@ macro_rules! define_parser {
                 } else {
                     // Non-Rust: link class node → constructor/__init__/initialize
                     let ctor_class_ranges: Vec<(&str, usize, usize)> = functions.iter()
-                        .filter(|(name, _, _, _)| {
-                            name.chars().next().is_some_and(|c| c.is_uppercase())
+                        .filter(|(name, _, _, _, _)| {
+                            name.chars().next().is_some_and(|c: char| c.is_uppercase())
                         })
-                        .map(|(name, start, end, _)| (name.as_str(), *start, *end))
+                        .map(|(name, start, end, _, _)| (name.as_str(), *start, *end))
                         .collect();
                     let constructor_names = ["constructor", "__init__", "initialize"];
                     for &(class_name, cls_start, cls_end) in &ctor_class_ranges {
