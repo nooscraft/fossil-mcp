@@ -345,6 +345,31 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                 continue;
             }
 
+            /// Helper function to check if a function has a placeholder body
+            fn has_placeholder_body(
+                source_lines: &[&str],
+                function_line: usize,
+            ) -> bool {
+                // Scan next 10 lines for placeholder patterns
+                let end = (function_line + 10).min(source_lines.len());
+                for i in function_line..end {
+                    let line = source_lines[i];
+                    let trimmed = line.trim();
+                    if trimmed == "pass"
+                        || trimmed == "..."
+                        || trimmed.contains("todo!()")
+                        || trimmed.contains("unimplemented!()")
+                    {
+                        return true;
+                    }
+                    // If we hit closing brace or semicolon at start of line, stop scanning
+                    if trimmed.starts_with('}') || (trimmed.starts_with(';') && !trimmed.contains('(')) {
+                        break;
+                    }
+                }
+                false
+            }
+
             // --- Function/method name patterns ---
             for caps in re_func_def.captures_iter(line) {
                 let cap_match = caps.get(1).or_else(|| caps.get(2));
@@ -362,13 +387,26 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                         if category == "phased" {
                             phased_name_lines.insert((rel_path.clone(), line_num));
                         }
+
+                        // For placeholder identifiers, check if function has real implementation (#26)
+                        let confidence = if category == "scaffold" && re_scaffold_ident.is_match(name)
+                        {
+                            if has_placeholder_body(&source_lines, line_num_0) {
+                                "high"
+                            } else {
+                                "low" // Has real implementation, probably legitimate API
+                            }
+                        } else {
+                            "high"
+                        };
+
                         findings.push(json!({
                             "file": rel_path,
                             "line": line_num,
                             "category": "scaffolding_name",
                             "match_text": name,
                             "pattern": category,
-                            "confidence": "high",
+                            "confidence": confidence,
                         }));
                     }
                 }
@@ -388,6 +426,33 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                     if before_slash || after_slash {
                         continue;
                     }
+
+                    // Skip XXX in data format patterns like "XXX-XX-XXXX" (#25)
+                    if m.as_str() == "XXX" {
+                        let before_char = if m.start() > 0 {
+                            line.chars().nth(m.start() - 1)
+                        } else {
+                            None
+                        };
+                        let after_char = if m.end() < line.len() {
+                            line.chars().nth(m.end())
+                        } else {
+                            None
+                        };
+
+                        // If surrounded by format characters (digits, dashes, or X), skip it
+                        if let Some(c) = before_char {
+                            if c.is_ascii_digit() || c == '-' || c == 'X' {
+                                continue;
+                            }
+                        }
+                        if let Some(c) = after_char {
+                            if c.is_ascii_digit() || c == '-' || c == 'X' {
+                                continue;
+                            }
+                        }
+                    }
+
                     findings.push(json!({
                         "file": rel_path,
                         "line": line_num,
