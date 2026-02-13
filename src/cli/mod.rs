@@ -268,6 +268,39 @@ enum Commands {
         path: PathBuf,
     },
 
+    /// CI/CD mode: fail builds on configurable thresholds
+    #[command(name = "check")]
+    Check {
+        /// Path to analyze (defaults to current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Only check files changed vs base branch (enables diff-aware mode)
+        /// Example: --diff main or --diff origin/main
+        #[arg(long)]
+        diff: Option<String>,
+
+        /// Override max dead code threshold from config
+        #[arg(long)]
+        max_dead_code: Option<usize>,
+
+        /// Override max clones threshold from config
+        #[arg(long)]
+        max_clones: Option<usize>,
+
+        /// Override max scaffolding threshold from config
+        #[arg(long)]
+        max_scaffolding: Option<usize>,
+
+        /// Minimum confidence level for counting findings (low, medium, high, certain)
+        #[arg(long)]
+        min_confidence: Option<String>,
+
+        /// Fail if any scaffolding artifacts found
+        #[arg(long)]
+        fail_on_scaffolding: bool,
+    },
+
     /// Manage security rules
     Rules {
         #[command(subcommand)]
@@ -361,6 +394,27 @@ pub fn run() {
         ),
 
         Commands::Scan { path } => commands::scan::run(&path, &config, &cli.format, cli.quiet),
+
+        Commands::Check {
+            path,
+            diff,
+            max_dead_code,
+            max_clones,
+            max_scaffolding,
+            min_confidence,
+            fail_on_scaffolding,
+        } => commands::check::run(
+            &path,
+            diff.as_deref(),
+            max_dead_code,
+            max_clones,
+            max_scaffolding,
+            min_confidence.as_deref(),
+            fail_on_scaffolding,
+            &config,
+            &cli.format,
+            cli.quiet,
+        ),
 
         Commands::Rules { action } => match action {
             RulesAction::List => commands::rules::list(),

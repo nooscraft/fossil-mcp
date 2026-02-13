@@ -36,22 +36,19 @@ impl CiRunner {
     /// Run the full CI analysis pipeline.
     pub fn run(&self, path: &Path) -> Result<CheckResult, Error> {
         let mut findings = Vec::new();
-        let mut dead_code_count = 0;
-        let mut clone_count = 0;
-        let mut scaffolding_count = 0;
 
         // Run dead code detection
         let dead_code_findings = self.detect_dead_code(path)?;
-        dead_code_count = dead_code_findings.len();
+        let dead_code_count = dead_code_findings.len();
         findings.extend(dead_code_findings);
 
         // Run clone detection
         let clone_findings = self.detect_clones(path)?;
-        clone_count = clone_findings.len();
+        let clone_count = clone_findings.len();
         findings.extend(clone_findings);
 
         // TODO: Run scaffolding detection (Phase 4)
-        // For now, scaffolding_count remains 0
+        let scaffolding_count = 0;
 
         // Apply confidence filter if configured
         if let Some(min_conf) = ThresholdEvaluator::new(self.config.clone()).min_confidence() {
