@@ -396,6 +396,10 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                             } else {
                                 "low" // Has real implementation, probably legitimate API
                             }
+                        } else if category == "phased" {
+                            // Phase N in identifiers is very likely domain-related (phase_count, phase1_latency)
+                            // Lower confidence significantly (#24)
+                            "low"
                         } else {
                             "high"
                         };
@@ -529,19 +533,47 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
             }
 
             // --- Phased comments (Phase N / Step N / Part N in comments) ---
+            // NOTE: "Phase N" is a VERY common domain term (pipelines, protocols, compilation stages).
+            // Only flag with LOW confidence, and skip if this appears to be describing system design
+            // rather than implementation scaffolding (#24).
             if include_phased_comments && !is_test_or_script_file(&rel_path, ext) {
                 if let Some(comment) = extract_comment(line, ext) {
                     if let Some(m) = re_phased_comment.find(comment) {
                         // Deduplicate: skip if this line already has a phased scaffolding_name finding
                         if !phased_name_lines.contains(&(rel_path.clone(), line_num)) {
-                            findings.push(json!({
-                                "file": rel_path,
-                                "line": line_num,
-                                "category": "phased_comment",
-                                "match_text": m.as_str(),
-                                "pattern": "phased_comment",
-                                "confidence": "medium",
-                            }));
+                            // Check if this looks like a design description vs. scaffolding
+                            // Scaffolding: "Phase 1: Implement", "Phase 1: Basic structure"
+                            // Design: "Phase 1: Lexing", "Phase 1: Fast regex (0-1ms)", "Phase 1: Handshake"
+                            let lower = comment.to_lowercase();
+                            let looks_like_scaffolding = lower.contains("implement")
+                                || lower.contains("build")
+                                || lower.contains("create")
+                                || lower.contains("setup")
+                                || lower.contains("todo");
+
+                            // Skip if comment describes metrics/performance (strong domain signal)
+                            let has_domain_context = lower.contains("ms)")
+                                || lower.contains("sec)")
+                                || lower.contains("ops)")
+                                || lower.contains("latency")
+                                || lower.contains("throughput")
+                                || lower.contains("handshake")
+                                || lower.contains("lexing")
+                                || lower.contains("parsing")
+                                || lower.contains("compilation")
+                                || lower.contains("detection");
+
+                            // Only flag if it looks like scaffolding AND doesn't have domain context
+                            if looks_like_scaffolding && !has_domain_context {
+                                findings.push(json!({
+                                    "file": rel_path,
+                                    "line": line_num,
+                                    "category": "phased_comment",
+                                    "match_text": m.as_str(),
+                                    "pattern": "phased_comment",
+                                    "confidence": "low",  // Changed from "medium" - very high FP rate
+                                }));
+                            }
                         }
                     }
                 }
@@ -743,9 +775,11 @@ mod tests {
         let file_path = dir.path().join("main.rs");
         let mut f = fs::File::create(&file_path).unwrap();
         writeln!(f, "fn main() {{").unwrap();
+        // Generic "Phase 1: initialization" is NOT flagged — could be legitimate domain
         writeln!(f, "    // Phase 1: initialization").unwrap();
         writeln!(f, "    let x = 1;").unwrap();
-        writeln!(f, "    // Step 2: processing").unwrap();
+        // BUT "Phase 1: Implement basic structure" IS flagged — clear scaffolding
+        writeln!(f, "    // Phase 1: Implement basic structure").unwrap();
         writeln!(f, "    let y = x + 1;").unwrap();
         writeln!(f, "}}").unwrap();
 
@@ -768,14 +802,15 @@ mod tests {
             .filter(|f| f["category"] == "phased_comment")
             .collect();
 
-        assert_eq!(phased.len(), 2);
-        assert_eq!(phased[0]["line"], 2);
+        // Now only 1 finding: the explicit "Implement" scaffolding
+        // (#24: Reduce Phase N false positives by requiring scaffolding keywords)
+        assert_eq!(phased.len(), 1);
+        assert_eq!(phased[0]["line"], 4);
         assert!(phased[0]["match_text"]
             .as_str()
             .unwrap()
             .contains("Phase 1"));
-        assert_eq!(phased[1]["line"], 4);
-        assert!(phased[1]["match_text"].as_str().unwrap().contains("Step 2"));
+        assert_eq!(phased[0]["confidence"], "low"); // Low confidence even when flagged
     }
 
     #[test]
