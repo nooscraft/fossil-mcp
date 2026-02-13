@@ -290,6 +290,7 @@ impl ResolvedEntryPointRules {
             "serde_deserialize_with:",
             "extends:",
             "implements:",
+            "trait_default:",  // Rust trait default implementations (#20)
         ] {
             rules.prefix_attributes.push(prefix.to_string());
         }
@@ -345,6 +346,13 @@ impl ResolvedEntryPointRules {
             "Parcelize",
             // TS/JS framework components (NestJS, Angular, etc.)
             "component",
+            // Rust/Python FFI and benchmarking (#18, #19)
+            "pymethods",
+            "pyfunction",
+            "pyclass",
+            "bench",
+            // Feature gates (#21)
+            "cfg_feature",
         ] {
             rules.exact_attributes.insert(attr.to_string());
         }

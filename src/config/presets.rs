@@ -272,6 +272,24 @@ static PRESETS: &[Preset] = &[
         entry_functions: &[],
         lifecycle_methods: &[],
     },
+    // Rust benchmarking framework
+    Preset {
+        name: "criterion",
+        detect_files: &[],
+        detect_deps: &["criterion"],
+        entry_attributes: &["bench"],
+        entry_functions: &["criterion_main", "criterion_group"],
+        lifecycle_methods: &[],
+    },
+    // Python FFI bindings framework
+    Preset {
+        name: "pyo3",
+        detect_files: &[],
+        detect_deps: &["pyo3"],
+        entry_attributes: &["pymethods", "pyfunction", "pyclass"],
+        entry_functions: &[],
+        lifecycle_methods: &[],
+    },
 ];
 
 /// Look up a preset by name.
