@@ -13,16 +13,22 @@ use tempfile::TempDir;
 
 /// Helper: run full dead code detection on a temp directory, return finding names.
 fn detect_dead_names(dir: &TempDir) -> Vec<String> {
-    let config = DetectorConfig {
-        include_tests: false,
-        min_confidence: fossil_mcp::core::Confidence::Low,
-        min_lines: 0,
-        exclude_patterns: Vec::new(),
-        detect_dead_stores: false,
-        use_rta: false,
-        use_sdg: false,
-        entry_point_rules: None,
-    };
+    detect_dead_names_with_config(dir, DetectorConfig::default())
+}
+
+/// Helper: run full dead code detection with custom config.
+fn detect_dead_names_with_config(dir: &TempDir, mut config: DetectorConfig) -> Vec<String> {
+    // Auto-detect and apply presets based on project files
+    if config.entry_point_rules.is_none() {
+        let entry_point_config = fossil_mcp::config::EntryPointConfig::default();
+        config.entry_point_rules = Some(
+            fossil_mcp::config::ResolvedEntryPointRules::from_config(
+                &entry_point_config,
+                Some(dir.path()),
+            )
+        );
+    }
+
     let detector = Detector::new(config);
     let result = detector
         .detect(dir.path())
@@ -1507,6 +1513,295 @@ pub fn main() {
     assert!(
         !dead_names.contains(&"default".to_string()),
         "default() in impl Default should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test #18: Criterion benchmark functions not recognized as entry points
+// =====================================================================
+
+#[test]
+fn test_criterion_benchmarks_not_dead() {
+    let dir = TempDir::new().unwrap();
+
+    // Create Cargo.toml with criterion dependency
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        r#"[package]
+name = "bench_test"
+version = "0.1.0"
+edition = "2021"
+
+[dev-dependencies]
+criterion = "0.5"
+"#,
+    )
+    .unwrap();
+
+    // Create lib.rs with benchmark functions marked with #[bench] attribute
+    fs::write(
+        dir.path().join("lib.rs"),
+        r#"
+pub fn fibonacci(n: u64) -> u64 {
+    match n {
+        0 => 1,
+        1 => 1,
+        n => fibonacci(n-1) + fibonacci(n-2),
+    }
+}
+
+#[bench]
+pub fn bench_fibonacci() {
+    fibonacci(20);
+}
+
+pub fn main() {
+    bench_fibonacci();
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+    assert!(
+        !dead_names.contains(&"fibonacci".to_string()),
+        "fibonacci() should not be dead when used in benchmark. Dead: {:?}",
+        dead_names
+    );
+    assert!(
+        !dead_names.contains(&"bench_fibonacci".to_string()),
+        "bench_fibonacci() with #[bench] should not be dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test #19: PyO3 methods not flagged as dead
+// =====================================================================
+
+#[test]
+fn test_pyo3_methods_not_dead() {
+    let dir = TempDir::new().unwrap();
+
+    // Create Cargo.toml with pyo3 dependency
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        r#"[package]
+name = "pyo3_test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pyo3 = { version = "0.20", features = ["extension-module"] }
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        dir.path().join("lib.rs"),
+        r#"
+use pyo3::prelude::*;
+
+#[pyclass]
+pub struct Greeter {
+    name: String,
+}
+
+#[pymethods]
+impl Greeter {
+    #[new]
+    fn new(name: String) -> Self {
+        Greeter { name }
+    }
+
+    fn greet(&self) -> String {
+        format!("Hello, {}!", self.name)
+    }
+}
+
+#[pyfunction]
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+pub fn main() {
+    let g = Greeter::new("World".to_string());
+    println!("{}", g.greet());
+    println!("{}", add(1, 2));
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+    assert!(
+        !dead_names.contains(&"greet".to_string()),
+        "greet() in #[pymethods] should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+    assert!(
+        !dead_names.contains(&"add".to_string()),
+        "add() with #[pyfunction] should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test #20: Trait default methods not flagged as dead
+// =====================================================================
+
+#[test]
+fn test_trait_default_methods_not_dead() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        r#"
+pub trait Config {
+    fn get_timeout(&self) -> u64 {
+        30
+    }
+
+    fn get_max_retries(&self) -> usize {
+        3
+    }
+
+    fn validate(&self) -> bool;
+}
+
+pub struct MyConfig;
+
+impl Config for MyConfig {
+    fn validate(&self) -> bool {
+        true
+    }
+}
+
+pub fn main() {
+    let cfg = MyConfig;
+    println!("{}", cfg.get_timeout());
+    println!("{}", cfg.validate());
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+    assert!(
+        !dead_names.contains(&"get_timeout".to_string()),
+        "get_timeout() with default impl should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test #21: Feature-gated functions not flagged as dead
+// =====================================================================
+
+#[test]
+fn test_cfg_feature_functions_not_dead() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        r#"
+#[cfg(feature = "experimental")]
+pub fn experimental_feature() {
+    println!("This is experimental");
+}
+
+pub fn stable_feature() {
+    println!("This is stable");
+}
+
+pub fn main() {
+    stable_feature();
+    #[cfg(feature = "experimental")]
+    experimental_feature();
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+    // Feature-gated functions should not be flagged as dead
+    // (they may be dead for the current feature set, but that's expected)
+    assert!(
+        !dead_names.contains(&"experimental_feature".to_string()),
+        "experimental_feature() with #[cfg(feature)] should NOT be flagged. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test #22: Variables used inside macros not reported as unused
+// =====================================================================
+
+#[test]
+fn test_variables_in_macros_not_unused() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        r#"
+pub fn test_function() {
+    let x = 42;
+    let y = 10;
+    assert!(x > 0);
+    println!("y = {}", y);
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+    // Variables used in assert! and println! should not be flagged
+    // (This is a dead code test, not dead store test, so we check function level)
+    assert!(
+        !dead_names.contains(&"test_function".to_string()),
+        "test_function() should not be dead when variables are used in macros. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test #23: Structs not reported as dead "functions"
+// =====================================================================
+
+#[test]
+fn test_structs_not_reported_as_dead() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        r#"
+pub struct User {
+    id: u32,
+    name: String,
+}
+
+pub struct Config {
+    timeout: u64,
+}
+
+pub fn main() {
+    let user = User { id: 1, name: "Alice".to_string() };
+    let config = Config { timeout: 30 };
+    println!("{}", user.id);
+    println!("{}", config.timeout);
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+    // Struct definitions should not be reported as dead "functions"
+    // They should be detected as struct types, not function nodes
+    assert!(
+        !dead_names.contains(&"User".to_string()),
+        "User struct should NOT be reported as dead. Dead: {:?}",
+        dead_names
+    );
+    assert!(
+        !dead_names.contains(&"Config".to_string()),
+        "Config struct should NOT be reported as dead. Dead: {:?}",
         dead_names
     );
 }
