@@ -5,6 +5,7 @@
 
 pub mod analysis;
 pub mod ast;
+pub mod ci;
 pub mod cli;
 pub mod clones;
 pub mod config;
