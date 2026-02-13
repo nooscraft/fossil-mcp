@@ -1,0 +1,110 @@
+# Fossil Configuration Example
+#
+# This file shows how to configure Fossil for CI/CD integration,
+# dead code detection, clone detection, and scaffolding analysis.
+
+# ============================================================================
+# [ci] - CI/CD Mode Configuration
+# ============================================================================
+#
+# Configure thresholds for CI/CD checks. When any threshold is exceeded,
+# `fossil check` will exit with code 1, causing CI builds to fail.
+#
+# All thresholds are optional - omit a threshold to skip that check.
+# Environment variables can override these settings:
+# - FOSSIL_CI_MAX_DEAD_CODE
+# - FOSSIL_CI_MAX_CLONES
+# - FOSSIL_CI_MAX_SCAFFOLDING
+# - FOSSIL_CI_MIN_CONFIDENCE
+# - FOSSIL_CI_FAIL_ON_SCAFFOLDING
+
+[ci]
+# Maximum number of dead code findings allowed
+# Example: max_dead_code = 5 means 6+ findings will fail the build
+max_dead_code = 10
+
+# Maximum number of clone findings allowed
+max_clones = 5
+
+# Maximum number of scaffolding findings allowed
+max_scaffolding = 3
+
+# Minimum confidence level for findings to count toward thresholds
+# Valid values: "low", "medium", "high", "certain"
+# Only findings at this confidence level or higher count
+min_confidence = "medium"
+
+# If true, scaffolding findings will cause the build to fail
+# even if count is within threshold. Useful for enforcing code quality.
+fail_on_scaffolding = false
+
+# ============================================================================
+# [entry_points] - Dead Code Detection Entry Points
+# ============================================================================
+#
+# Define custom entry points for dead code detection.
+# Fossil uses heuristics to detect entry points (main, tests, attributes),
+# but you can explicitly list them here for languages like Python, Go, etc.
+
+[entry_points]
+# Exact function names to treat as entry points (case-sensitive)
+exact_functions = ["main", "cli_main", "setup_app"]
+
+# Attribute patterns to mark functions as entry points (language-specific)
+# For Rust: pub attributes like #[test], #[bench], impl trait patterns
+# Example: entry_attributes = ["test", "main"]
+entry_attributes = []
+
+# ============================================================================
+# [clones] - Clone Detection Configuration
+# ============================================================================
+#
+# Configure clone detection sensitivity and thresholds.
+
+[clones]
+# Minimum lines of code for a function to be considered for clone detection
+# Functions shorter than this are not analyzed
+min_lines = 6
+
+# Similarity threshold for Type 3 clones (0.0 - 1.0)
+# Higher values = more strict (only nearly identical code flagged)
+# Default: 0.8
+similarity_threshold = 0.80
+
+# ============================================================================
+# Usage Examples
+# ============================================================================
+#
+# Command line usage with configuration:
+#
+# 1. Basic CI check with default thresholds from this file:
+#    $ fossil check
+#
+# 2. Override max_dead_code threshold from CLI:
+#    $ fossil check --max-dead-code 20
+#
+# 3. Diff-aware CI check (only analyze changed files in PR):
+#    $ fossil check --diff origin/main
+#
+# 4. Generate SARIF output for GitHub Actions integration:
+#    $ fossil check --format sarif
+#
+# 5. Generate JSON output:
+#    $ fossil check --format json
+#
+# 6. Quiet mode (suppress diagnostic output):
+#    $ fossil check --quiet
+#
+# ============================================================================
+# GitHub Actions Integration
+# ============================================================================
+#
+# Use in GitHub Actions workflows:
+#
+#   - name: Run Fossil CI Check
+#     run: |
+#       fossil check \
+#         --diff origin/${{ github.base_ref }} \
+#         --format sarif
+#
+# See examples/.github/workflows/fossil-check.yml for a complete workflow.

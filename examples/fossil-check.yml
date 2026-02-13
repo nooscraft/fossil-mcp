@@ -1,0 +1,151 @@
+name: Fossil CI Check
+
+# Run on pull requests to analyze only changed files
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - release/**
+
+jobs:
+  fossil-check:
+    name: Code Quality Check
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout the code
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history for diff comparison
+          fetch-depth: 0
+
+      # 2. Install Rust (required for fossil if building from source)
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # 3. Install Fossil from cargo-binstall or build from source
+      - name: Install Fossil
+        run: |
+          # Try cargo-binstall for faster installation
+          cargo install cargo-binstall || true
+          cargo binstall -y fossil || cargo install --git https://github.com/yfedoseev/fossil-mcp.git
+
+      # 4. Run Fossil check with diff-aware mode
+      #
+      # Key flags:
+      # - --diff origin/main: Only analyze files changed vs main branch (important for PR analysis)
+      # - --format sarif: Output SARIF format for GitHub code scanning integration
+      # - --min-confidence medium: Only report medium+ confidence findings
+      #
+      # Tip: Create a fossil.toml in your repo to avoid CLI flags
+      - name: Run Fossil CI Check
+        id: fossil
+        continue-on-error: true
+        run: |
+          fossil check \
+            --diff origin/${{ github.base_ref || 'main' }} \
+            --format sarif \
+            --min-confidence medium \
+            --max-dead-code 10 \
+            --max-clones 5 \
+            > fossil-results.sarif
+
+      # 5. Upload SARIF results to GitHub Security tab
+      #
+      # This makes findings visible in:
+      # - Pull request review comments
+      # - Repository Security tab
+      # - GitHub Advanced Security dashboards
+      - name: Upload Fossil results to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: fossil-results.sarif
+          category: fossil
+
+      # 6. Set build status based on check result
+      #
+      # GitHub Actions exit codes:
+      # - 0 = all thresholds passed ✓
+      # - 1 = threshold exceeded (build fails)
+      # - 2 = error (git not available, etc.)
+      - name: Evaluate check result
+        if: steps.fossil.outcome == 'failure'
+        run: |
+          echo "❌ Fossil check failed - code quality thresholds exceeded"
+          echo ""
+          echo "Review the findings in the GitHub Security tab or download fossil-results.sarif"
+          exit 1
+
+      - name: Check passed
+        if: steps.fossil.outcome == 'success'
+        run: |
+          echo "✓ Fossil check passed - all thresholds met"
+
+# ============================================================================
+# Configuration Options
+# ============================================================================
+#
+# Key environment variables (set in workflow or use fossil.toml):
+# - FOSSIL_CI_MAX_DEAD_CODE: Maximum dead code findings
+# - FOSSIL_CI_MAX_CLONES: Maximum clone findings
+# - FOSSIL_CI_MAX_SCAFFOLDING: Maximum scaffolding findings
+# - FOSSIL_CI_MIN_CONFIDENCE: Minimum confidence (low|medium|high|certain)
+# - FOSSIL_CI_FAIL_ON_SCAFFOLDING: Fail if any scaffolding found (true|false)
+#
+# ============================================================================
+# Usage Patterns
+# ============================================================================
+#
+# Pattern 1: Permissive (first-time setup)
+# ============================================================================
+# fossil check --diff origin/main
+#
+# This runs with no thresholds - just reports findings.
+# Use this to establish baseline and fix issues.
+#
+# ============================================================================
+# Pattern 2: Strict (mature projects)
+# ============================================================================
+# fossil check \
+#   --diff origin/main \
+#   --max-dead-code 0 \
+#   --max-clones 0 \
+#   --fail-on-scaffolding
+#
+# This fails on any findings - enforces strict code quality.
+# Recommended for mature projects with low technical debt.
+#
+# ============================================================================
+# Pattern 3: Feature-based (using fossil.toml)
+# ============================================================================
+# Create fossil.toml:
+#   [ci]
+#   max_dead_code = 10
+#   max_clones = 5
+#   fail_on_scaffolding = true
+#
+# Then just use:
+#   fossil check --diff origin/main --format sarif
+#
+# ============================================================================
+# Troubleshooting
+# ============================================================================
+#
+# Q: "fatal: Not a git repository" error
+# A: Ensure fetch-depth is set (see step 1)
+#
+# Q: Wrong branch being compared
+# A: Use github.base_ref for PR comparisons, or hardcode branch name
+#
+# Q: SARIF upload fails
+# A: Ensure GitHub Advanced Security is enabled (Enterprise or public repos)
+#    For private repos, enable in repo settings → Security & analysis
+#
+# Q: Want to exclude certain files?
+# A: Use exclude_patterns in fossil.toml or fossil CLI filters
+#
+# Q: Only run on PRs, not push to main?
+# A: Remove 'push' trigger or use 'if: github.event_name == 'pull_request''

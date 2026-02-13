@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use serde_json::json;
+
 use crate::ci::{CiRunner, DiffFilter};
 use crate::config::FossilConfig;
 use crate::core::Error;
@@ -77,9 +79,45 @@ pub fn run(
                 .map_err(|e| Error::analysis(format!("JSON error: {e}")))?
         }
         "sarif" => {
-            // TODO: Implement SARIF output for check results (Phase 6)
-            // For now, fall through to text format
-            crate::ci::format_summary(&result, crate::cli::use_colors())
+            // Create a minimal SARIF structure with findings
+            let sarif_json = json!({
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                "version": "2.1.0",
+                "runs": [{
+                    "tool": {
+                        "driver": {
+                            "name": "fossil",
+                            "version": env!("CARGO_PKG_VERSION"),
+                            "informationUri": "https://github.com/yfedoseev/fossil-mcp"
+                        }
+                    },
+                    "results": result.findings.iter().map(|f| json!({
+                        "ruleId": f.rule_id,
+                        "message": { "text": f.description },
+                        "level": match f.severity {
+                            crate::core::Severity::Critical | crate::core::Severity::High => "error",
+                            crate::core::Severity::Medium => "warning",
+                            _ => "note"
+                        },
+                        "locations": [{
+                            "physicalLocation": {
+                                "artifactLocation": { "uri": f.location.file },
+                                "region": {
+                                    "startLine": f.location.line_start,
+                                    "endLine": f.location.line_end
+                                }
+                            }
+                        }]
+                    })).collect::<Vec<_>>()
+                }]
+            });
+
+            let sarif_str = serde_json::to_string_pretty(&sarif_json)
+                .map_err(|e| Error::analysis(format!("SARIF error: {e}")))?;
+
+            // Add invocations to mark check result
+            crate::ci::report::add_sarif_invocations(&sarif_str, result.passed)
+                .map_err(|e| Error::analysis(format!("SARIF invocations error: {e}")))?
         }
         _ => crate::ci::format_summary(&result, crate::cli::use_colors()),
     };

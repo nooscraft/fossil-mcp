@@ -278,6 +278,12 @@ fossil-mcp scan /path/to/project --format json
 
 # Start MCP server explicitly
 fossil-mcp mcp
+
+# CI/CD check with configurable thresholds
+fossil-mcp check --max-dead-code 10 --max-clones 5
+
+# Diff-aware check (analyze only changed files)
+fossil-mcp check --diff origin/main --format sarif
 ```
 
 The CLI provides an interactive dashboard with language breakdown, confidence summary, and file hotspots. When running in a terminal, you get a REPL to explore findings interactively:
@@ -365,6 +371,102 @@ Presets are auto-detected from project dependencies. They tell Fossil which func
 | `axum` | `axum` in deps | `#[tokio::main]`, `#[debug_handler]` |
 | `actix` | `actix-web` in deps | `#[actix_web::main]`, `#[get]`, `#[post]`, ... |
 | `angular` | `@angular/core` in deps | `ngOnInit`, `ngOnDestroy`, ... |
+
+---
+
+## CI/CD Integration
+
+Fossil includes a **`check`** command for CI/CD pipelines. It fails builds when code quality thresholds are exceeded, helping teams enforce code standards and prevent technical debt from accumulating.
+
+### Basic Usage
+
+```bash
+# Check against configured thresholds
+fossil-mcp check
+
+# Override thresholds via CLI
+fossil-mcp check --max-dead-code 10 --max-clones 5
+
+# Diff-aware mode (only analyze changed files in PR)
+fossil-mcp check --diff origin/main
+
+# Generate SARIF for GitHub code scanning
+fossil-mcp check --diff origin/main --format sarif
+
+# Quiet mode (no diagnostic output)
+fossil-mcp check --quiet
+```
+
+### Configuration
+
+Add a `[ci]` section to `fossil.toml`:
+
+```toml
+[ci]
+max_dead_code = 10           # Maximum dead code findings (0 = fail on any)
+max_clones = 5               # Maximum clone findings
+max_scaffolding = 3          # Maximum scaffolding findings
+min_confidence = "medium"    # Minimum confidence (low|medium|high|certain)
+fail_on_scaffolding = false  # Fail if any scaffolding found
+```
+
+### GitHub Actions Integration
+
+Create `.github/workflows/fossil-check.yml`:
+
+```yaml
+name: Fossil CI Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  fossil:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Fossil
+        run: cargo install fossil-mcp
+
+      - name: Run Fossil check
+        run: |
+          fossil-mcp check \
+            --diff origin/${{ github.base_ref || 'main' }} \
+            --format sarif \
+            > fossil-results.sarif
+
+      - name: Upload to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: fossil-results.sarif
+```
+
+### How It Works
+
+1. **Scans** the project using the same analysis engine as `scan`
+2. **Optionally filters** to only changed files (via `--diff branch`)
+3. **Evaluates** against configured thresholds
+4. **Reports** findings as text, JSON, or SARIF
+5. **Exits** with code 1 if thresholds exceeded (fails CI build)
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | All thresholds passed ✓ |
+| 1 | Threshold exceeded (build fails) |
+| 2 | Error (missing git, invalid config, etc.) |
+
+For complete examples, see [examples/fossil.toml](examples/fossil.toml) and [examples/fossil-check.yml](examples/fossil-check.yml).
 
 ---
 
