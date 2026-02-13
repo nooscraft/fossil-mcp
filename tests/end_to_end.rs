@@ -1805,3 +1805,335 @@ pub fn main() {
         dead_names
     );
 }
+
+#[test]
+fn test_language_filtering_dead_code_single() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("main.rs"),
+        r#"
+fn main() {
+    used_function();
+}
+
+fn used_function() {}
+
+fn dead_function() {
+    println!("This is never called");
+}
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        dir.path().join("script.py"),
+        r#"
+def main():
+    used_function()
+
+def used_function():
+    pass
+
+def dead_python_function():
+    print("Never called")
+"#,
+    )
+    .unwrap();
+
+    // Test filtering to only Rust
+    let rust_dead = detect_dead_names_with_filter(dir.path(), Some("rust"));
+    assert!(
+        rust_dead.contains(&"dead_function".to_string()),
+        "Should find Rust dead function. Dead: {:?}",
+        rust_dead
+    );
+    assert!(
+        !rust_dead.contains(&"dead_python_function".to_string()),
+        "Should NOT find Python dead function when filtering for Rust. Dead: {:?}",
+        rust_dead
+    );
+
+    // Test filtering to only Python
+    let python_dead = detect_dead_names_with_filter(dir.path(), Some("python"));
+    assert!(
+        python_dead.contains(&"dead_python_function".to_string()),
+        "Should find Python dead function. Dead: {:?}",
+        python_dead
+    );
+    assert!(
+        !python_dead.contains(&"dead_function".to_string()),
+        "Should NOT find Rust dead function when filtering for Python. Dead: {:?}",
+        python_dead
+    );
+
+    // Test no filter (should find both)
+    let all_dead = detect_dead_names(&dir);
+    assert!(
+        all_dead.contains(&"dead_function".to_string()),
+        "Should find Rust dead function. Dead: {:?}",
+        all_dead
+    );
+    assert!(
+        all_dead.contains(&"dead_python_function".to_string()),
+        "Should find Python dead function. Dead: {:?}",
+        all_dead
+    );
+}
+
+#[test]
+fn test_language_filtering_dead_code_multiple() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("code.rs"),
+        r#"
+fn main() {
+    used_function();
+}
+
+fn used_function() {}
+fn dead_rust() {}
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        dir.path().join("code.ts"),
+        r#"
+function main() {
+    usedFunction();
+}
+
+function usedFunction() {}
+function deadTypescript() {}
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        dir.path().join("code.py"),
+        r#"
+def main():
+    used_function()
+
+def used_function():
+    pass
+
+def dead_python():
+    pass
+"#,
+    )
+    .unwrap();
+
+    // Test filtering to Rust and Python (should exclude TypeScript)
+    let filtered = detect_dead_names_with_filter(dir.path(), Some("rust,python"));
+    assert!(
+        filtered.contains(&"dead_rust".to_string()),
+        "Should find Rust dead function. Dead: {:?}",
+        filtered
+    );
+    assert!(
+        filtered.contains(&"dead_python".to_string()),
+        "Should find Python dead function. Dead: {:?}",
+        filtered
+    );
+    assert!(
+        !filtered.contains(&"deadTypescript".to_string()),
+        "Should NOT find TypeScript dead function. Dead: {:?}",
+        filtered
+    );
+}
+
+#[test]
+fn test_language_filtering_clones() {
+    let dir = TempDir::new().unwrap();
+
+    // Create duplicate Rust code
+    fs::write(
+        dir.path().join("a.rs"),
+        r#"
+fn duplicate_function() {
+    let x = 1;
+    let y = 2;
+    let z = x + y;
+    println!("{}", z);
+}
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        dir.path().join("b.rs"),
+        r#"
+fn similar_function() {
+    let x = 1;
+    let y = 2;
+    let z = x + y;
+    println!("{}", z);
+}
+"#,
+    )
+    .unwrap();
+
+    // Create duplicate Python code
+    fs::write(
+        dir.path().join("script_a.py"),
+        r#"
+def duplicate_py():
+    x = 1
+    y = 2
+    z = x + y
+    print(z)
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        dir.path().join("script_b.py"),
+        r#"
+def duplicate_py_2():
+    x = 1
+    y = 2
+    z = x + y
+    print(z)
+"#,
+    )
+    .unwrap();
+
+    // Test with Rust filter — should find Rust clones
+    let rust_clones = detect_clones_with_filter(dir.path(), 5, 0.8, "type1,type2,type3", Some("rust"));
+    assert!(
+        !rust_clones.is_empty(),
+        "Should find Rust clones with language filter"
+    );
+    // All instances should be .rs files
+    for group in &rust_clones {
+        for instance in &group.instances {
+            assert!(
+                instance.file.ends_with(".rs"),
+                "Clone instance should be in Rust file: {}",
+                instance.file
+            );
+        }
+    }
+
+    // Test with Python filter — should find Python clones
+    let python_clones =
+        detect_clones_with_filter(dir.path(), 5, 0.8, "type1,type2,type3", Some("python"));
+    assert!(
+        !python_clones.is_empty(),
+        "Should find Python clones with language filter"
+    );
+    // All instances should be .py files
+    for group in &python_clones {
+        for instance in &group.instances {
+            assert!(
+                instance.file.ends_with(".py"),
+                "Clone instance should be in Python file: {}",
+                instance.file
+            );
+        }
+    }
+
+    // Test with no filter — should find clones in both languages
+    let all_clones = detect_clones_with_filter(dir.path(), 5, 0.8, "type1,type2,type3", None);
+    assert!(
+        !all_clones.is_empty(),
+        "Should find clones with no language filter"
+    );
+}
+
+/// Helper function to detect dead code with language filter
+fn detect_dead_names_with_filter(
+    dir: &std::path::Path,
+    language: Option<&str>,
+) -> Vec<String> {
+    use fossil_mcp::core::Language;
+
+    let fossil_config = fossil_mcp::config::FossilConfig::discover(dir);
+    let rules = fossil_mcp::config::ResolvedEntryPointRules::from_config(
+        &fossil_config.entry_points,
+        Some(dir),
+    );
+
+    let config = DetectorConfig {
+        include_tests: true,
+        min_confidence: fossil_mcp::core::Confidence::Low,
+        min_lines: 0,
+        exclude_patterns: Vec::new(),
+        detect_dead_stores: true,
+        use_rta: true,
+        use_sdg: false,
+        entry_point_rules: Some(rules),
+    };
+
+    let detector = Detector::new(config);
+    let result = detector.detect(dir).unwrap();
+
+    let allowed_languages = if let Some(lang_str) = language {
+        let (langs, _) = Language::parse_list(lang_str);
+        Some(langs)
+    } else {
+        None
+    };
+
+    result
+        .findings
+        .into_iter()
+        .filter(|f| {
+            if let Some(ref langs) = allowed_languages {
+                if let Some(file_lang) = Language::from_file_path(&f.file) {
+                    langs.contains(&file_lang)
+                } else {
+                    false
+                }
+            } else {
+                true
+            }
+        })
+        .map(|f| f.name)
+        .collect()
+}
+
+/// Helper function to detect clones with language filter
+fn detect_clones_with_filter(
+    dir: &std::path::Path,
+    min_lines: usize,
+    similarity: f64,
+    types: &str,
+    language: Option<&str>,
+) -> Vec<fossil_mcp::clones::types::CloneGroup> {
+    use fossil_mcp::clones::detector::{CloneDetector, CloneConfig};
+    use fossil_mcp::core::Language;
+
+    let type_list: Vec<&str> = types.split(',').map(|t| t.trim()).collect();
+
+    let config = CloneConfig {
+        min_lines,
+        min_nodes: 5,
+        similarity_threshold: similarity,
+        detect_type1: type_list.contains(&"type1"),
+        detect_type2: type_list.contains(&"type2"),
+        detect_type3: type_list.contains(&"type3"),
+        detect_cross_language: true,
+    };
+
+    let detector = CloneDetector::new(config);
+    let mut result = detector.detect(dir).unwrap();
+
+    // Apply language filter
+    if let Some(lang_str) = language {
+        let (langs, _) = Language::parse_list(lang_str);
+        result.groups.retain_mut(|group| {
+            group.instances.retain(|inst| {
+                if let Some(file_lang) = Language::from_file_path(&inst.file) {
+                    langs.contains(&file_lang)
+                } else {
+                    false
+                }
+            });
+            !group.instances.is_empty()
+        });
+    }
+
+    result.groups
+}

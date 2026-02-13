@@ -154,6 +154,52 @@ impl Language {
             Language::Dart,
         ]
     }
+
+    /// Parse language from its display name (case-insensitive).
+    /// Examples: "rust", "Rust", "RUST" → Language::Rust
+    pub fn from_name(name: &str) -> Option<Self> {
+        let lower = name.to_lowercase();
+        Self::all()
+            .iter()
+            .find(|lang| lang.name().to_lowercase() == lower)
+            .copied()
+    }
+
+    /// Parse comma-separated language list, with validation.
+    /// Returns languages and list of unrecognized names.
+    /// Example: "rust,python,invalid" → (vec![Rust, Python], vec!["invalid"])
+    pub fn parse_list(input: &str) -> (Vec<Language>, Vec<String>) {
+        let mut languages = Vec::new();
+        let mut invalid = Vec::new();
+
+        for name in input.split(',') {
+            let name = name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            match Self::from_name(name) {
+                Some(lang) => {
+                    if !languages.contains(&lang) {
+                        languages.push(lang);
+                    }
+                }
+                None => invalid.push(name.to_string()),
+            }
+        }
+
+        (languages, invalid)
+    }
+
+    /// Determine language from file path by extension.
+    /// Returns None if extension is not recognized.
+    pub fn from_file_path<P: AsRef<std::path::Path>>(path: P) -> Option<Self> {
+        let path = path.as_ref();
+        let ext = path.extension()?.to_str()?;
+        Self::all()
+            .iter()
+            .find(|lang| lang.extensions().contains(&ext))
+            .copied()
+    }
 }
 
 impl fmt::Display for Language {

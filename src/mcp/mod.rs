@@ -238,6 +238,10 @@ impl McpServer {
                                 "type": "boolean",
                                 "description": "Include findings for code only reachable from tests (default: false)",
                                 "default": false
+                            },
+                            "language": {
+                                "type": "string",
+                                "description": "Filter findings by language(s): rust, python, typescript, java, go, csharp, cpp, c, ruby, php, kotlin, swift, bash, sql, scala, dart. Use comma-separated list for multiple: rust,python,go"
                             }
                         },
                         "required": ["path"]
@@ -273,6 +277,10 @@ impl McpServer {
                                 "type": "integer",
                                 "description": "Number of clone groups to skip (default: 0)",
                                 "default": 0
+                            },
+                            "language": {
+                                "type": "string",
+                                "description": "Filter clones by language(s): rust, python, typescript, java, go, csharp, cpp, c, ruby, php, kotlin, swift, bash, sql, scala, dart. Use comma-separated list for multiple: rust,python,go"
                             }
                         },
                         "required": ["path"]
@@ -675,6 +683,27 @@ impl McpServer {
             .get("include_test_findings")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let language_filter = args.get("language").and_then(|v| v.as_str());
+
+        // Parse language filter if provided
+        let allowed_languages = if let Some(lang_str) = language_filter {
+            let (langs, invalid) = crate::core::Language::parse_list(lang_str);
+            if !invalid.is_empty() {
+                return Err(format!(
+                    "Invalid language(s): {}. Valid options: {}",
+                    invalid.join(", "),
+                    crate::core::Language::all()
+                        .iter()
+                        .map(|l| l.name())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            Some(langs)
+        } else {
+            None
+        };
+
         let all_findings: Vec<Value> = if include_test_findings {
             raw["findings"].as_array().cloned().unwrap_or_default()
         } else {
@@ -690,6 +719,26 @@ impl McpServer {
                         .unwrap_or(true)
                 })
                 .collect()
+        };
+
+        // Filter by language if specified
+        let all_findings: Vec<Value> = if let Some(langs) = allowed_languages {
+            all_findings
+                .into_iter()
+                .filter(|f| {
+                    if let Some(file) = f["file"].as_str() {
+                        if let Some(file_lang) = crate::core::Language::from_file_path(file) {
+                            langs.contains(&file_lang)
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                })
+                .collect()
+        } else {
+            all_findings
         };
         let total_count = all_findings.len();
         let page: Vec<Value> = all_findings.into_iter().skip(offset).take(limit).collect();
@@ -794,6 +843,27 @@ impl McpServer {
         // then sort by similarity descending before pagination.
         let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
         let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+        let language_filter = args.get("language").and_then(|v| v.as_str());
+
+        // Parse language filter if provided
+        let allowed_languages = if let Some(lang_str) = language_filter {
+            let (langs, invalid) = crate::core::Language::parse_list(lang_str);
+            if !invalid.is_empty() {
+                return Err(format!(
+                    "Invalid language(s): {}. Valid options: {}",
+                    invalid.join(", "),
+                    crate::core::Language::all()
+                        .iter()
+                        .map(|l| l.name())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            Some(langs)
+        } else {
+            None
+        };
+
         let mut all_groups = raw["clone_groups"].as_array().cloned().unwrap_or_default();
 
         // Post-filter by min_lines — each instance must have >= min_lines lines
@@ -808,6 +878,26 @@ impl McpServer {
         });
         // Post-filter by similarity threshold
         all_groups.retain(|g| g["similarity"].as_f64().unwrap_or(0.0) >= similarity);
+
+        // Post-filter by language if specified
+        if let Some(langs) = &allowed_languages {
+            all_groups.retain_mut(|g| {
+                g["instances"].as_array_mut().map(|instances| {
+                    instances.retain(|i| {
+                        if let Some(file) = i["file"].as_str() {
+                            if let Some(file_lang) = crate::core::Language::from_file_path(file) {
+                                langs.contains(&file_lang)
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    });
+                    !instances.is_empty()
+                }).unwrap_or(false)
+            });
+        }
 
         all_groups.sort_by(|a, b| {
             let sa = a["similarity"].as_f64().unwrap_or(0.0);

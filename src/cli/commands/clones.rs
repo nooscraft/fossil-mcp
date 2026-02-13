@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use crate::core::Language;
 use crate::clones::detector::{CloneConfig, CloneDetector};
 
 pub fn run(
@@ -9,12 +10,32 @@ pub fn run(
     min_lines: usize,
     similarity: f64,
     types: &str,
+    language: Option<&str>,
     format: &str,
     quiet: bool,
 ) -> Result<String, crate::core::Error> {
     if !quiet {
         eprintln!("Detecting clones in: {}", path.display());
     }
+
+    // Parse and validate language filter
+    let allowed_languages = if let Some(lang_str) = language {
+        let (langs, invalid) = Language::parse_list(lang_str);
+        if !invalid.is_empty() {
+            return Err(crate::core::Error::analysis(format!(
+                "Invalid language(s): {}. Valid options: {}",
+                invalid.join(", "),
+                Language::all()
+                    .iter()
+                    .map(|l| l.name())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        }
+        Some(langs)
+    } else {
+        None
+    };
 
     let type_list: Vec<&str> = types.split(',').map(|t| t.trim()).collect();
 
@@ -29,7 +50,29 @@ pub fn run(
     };
 
     let detector = CloneDetector::new(config);
-    let result = detector.detect(path)?;
+    let mut result = detector.detect(path)?;
+
+    // Filter by language if specified
+    if let Some(langs) = allowed_languages {
+        result.groups.retain_mut(|group| {
+            // Keep the clone group if at least one instance matches the language filter
+            group.instances.retain(|inst| {
+                if let Some(file_lang) = Language::from_file_path(&inst.file) {
+                    langs.contains(&file_lang)
+                } else {
+                    false
+                }
+            });
+            !group.instances.is_empty()
+        });
+
+        // Recalculate duplicate line count
+        result.total_duplicated_lines = result
+            .groups
+            .iter()
+            .flat_map(|g| g.instances.iter().map(|i| i.end_line - i.start_line + 1))
+            .sum();
+    }
 
     if !quiet {
         eprintln!(

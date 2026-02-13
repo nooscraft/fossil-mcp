@@ -230,6 +230,11 @@ enum Commands {
         /// Minimum lines of code for a finding to be reported
         #[arg(long, default_value = "0")]
         min_lines: usize,
+
+        /// Filter by programming language(s): rust, python, typescript, etc.
+        /// Use comma-separated list for multiple: rust,python,go
+        #[arg(long)]
+        language: Option<String>,
     },
 
     /// Detect code clones (duplicated code)
@@ -249,6 +254,11 @@ enum Commands {
         /// Clone types to detect: type1, type2, type3 (comma-separated)
         #[arg(long, default_value = "type1,type2,type3")]
         types: String,
+
+        /// Filter by programming language(s): rust, python, typescript, etc.
+        /// Use comma-separated list for multiple: rust,python,go
+        #[arg(long)]
+        language: Option<String>,
     },
 
     /// Run all analyses (dead code + clones)
@@ -323,11 +333,13 @@ pub fn run() {
             include_tests,
             min_confidence,
             min_lines,
+            language,
         } => commands::dead_code::run(
             &path,
             include_tests,
             &min_confidence,
             min_lines,
+            language.as_deref(),
             &cli.format,
             cli.quiet,
         ),
@@ -337,7 +349,16 @@ pub fn run() {
             min_lines,
             similarity,
             types,
-        } => commands::clones::run(&path, min_lines, similarity, &types, &cli.format, cli.quiet),
+            language,
+        } => commands::clones::run(
+            &path,
+            min_lines,
+            similarity,
+            &types,
+            language.as_deref(),
+            &cli.format,
+            cli.quiet,
+        ),
 
         Commands::Scan { path } => commands::scan::run(&path, &config, &cli.format, cli.quiet),
 
