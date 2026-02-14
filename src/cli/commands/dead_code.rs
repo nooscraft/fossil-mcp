@@ -140,5 +140,9 @@ pub fn run(
         eprint!("{}", graph_stats.report());
     }
 
-    format_findings(&findings, format)
+    // Format and output findings (can be expensive for SARIF on large result sets)
+    crate::core::trace_msg(format!("Starting output formatting ({} findings, {} format)", findings.len(), format));
+    let output = format_findings(&findings, format)?;
+    crate::core::trace_msg(format!("Output formatting completed ({} bytes)", output.len()));
+    Ok(output)
 }
