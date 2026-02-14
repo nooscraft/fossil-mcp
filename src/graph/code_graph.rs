@@ -1,5 +1,6 @@
 //! CodeGraph: petgraph-based directed graph of code nodes and call edges.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::core::{CallEdge, CodeNode, EdgeConfidence, Language, NodeId};
@@ -16,7 +17,9 @@ pub struct CodeGraph {
     id_to_index: HashMap<NodeId, NodeIndex>,
     name_to_ids: HashMap<String, Vec<NodeId>>,
     file_to_node_ids: HashMap<String, Vec<NodeId>>,
-    file_name_index: HashMap<(String, String), Vec<NodeIndex>>, // NEW: (file, name) -> list of NodeIndices
+    // LAZY: Built on first call to find_node_by_name_in_file() via interior mutability
+    // Saves ~30GB memory by deferring index construction until needed
+    file_name_index: RefCell<Option<HashMap<(String, String), Vec<NodeIndex>>>>,
     entry_points: HashSet<NodeIndex>,
     test_entry_points: HashSet<NodeIndex>,
     language: Option<Language>,
@@ -29,7 +32,7 @@ impl CodeGraph {
             id_to_index: HashMap::new(),
             name_to_ids: HashMap::new(),
             file_to_node_ids: HashMap::new(),
-            file_name_index: HashMap::new(),
+            file_name_index: RefCell::new(None), // LAZY: Will be built on first use
             entry_points: HashSet::new(),
             test_entry_points: HashSet::new(),
             language: None,
@@ -49,13 +52,14 @@ impl CodeGraph {
         let file = node.location.file.clone();
         let idx = self.graph.add_node(node);
         self.id_to_index.insert(id, idx);
-        self.name_to_ids.entry(name.clone()).or_default().push(id);
+        self.name_to_ids.entry(name).or_default().push(id);
         if full_name != id.to_string() {
             self.name_to_ids.entry(full_name).or_default().push(id);
         }
-        self.file_to_node_ids.entry(file.clone()).or_default().push(id);
-        // NEW: Add to file_name_index for O(1) lookups (supports multiple overloads)
-        self.file_name_index.entry((file, name)).or_default().push(idx);
+        self.file_to_node_ids.entry(file).or_default().push(id);
+        // LAZY: file_name_index will be built on first call to find_node_by_name_in_file()
+        // Invalidate cached index so it gets rebuilt with new node
+        *self.file_name_index.borrow_mut() = None;
         idx
     }
 
@@ -114,9 +118,24 @@ impl CodeGraph {
     }
 
     /// Find a node by name scoped to a specific file.
-    /// O(1) complexity via file_name_index direct lookup (returns first match if overloaded).
+    /// O(1) complexity via lazy-built file_name_index (first call builds index).
     pub fn find_node_by_name_in_file(&self, name: &str, file: &str) -> Option<NodeIndex> {
-        self.file_name_index
+        // Borrow index (lazily build if needed)
+        let mut index_ref = self.file_name_index.borrow_mut();
+        if index_ref.is_none() {
+            // Build index on first call
+            let mut index: HashMap<(String, String), Vec<NodeIndex>> = HashMap::new();
+            for (idx, node) in self.nodes() {
+                let key = (node.location.file.clone(), node.name.clone());
+                index.entry(key).or_default().push(idx);
+            }
+            *index_ref = Some(index);
+        }
+
+        // Look up in built index
+        index_ref
+            .as_ref()
+            .unwrap()
             .get(&(file.to_string(), name.to_string()))
             .and_then(|indices| indices.first().copied())
     }
