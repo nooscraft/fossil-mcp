@@ -152,6 +152,23 @@ impl GraphBuilder {
         // Build import resolver for file-scoped name resolution
         let resolver = ImportResolver::new(parsed_files);
 
+        // === PHASE 1: Cross-file call resolution with granular timing ===
+        let xfile_timer = crate::core::Timer::start("Cross-file call resolution");
+
+        // Build barrel re-export cache ONCE to avoid repeated parsing
+        // (Phase 2 optimization: eliminate O(files × barrels × lines) re-parsing)
+        let mut barrel_cache: std::collections::HashMap<String, Vec<BarrelReexport>> =
+            std::collections::HashMap::new();
+        for pf in parsed_files {
+            if barrel_suffixes.iter().any(|s| pf.path.ends_with(s)) {
+                barrel_cache.insert(pf.path.clone(), extract_barrel_reexports(&pf.source));
+            }
+        }
+        crate::core::trace_msg(format!(
+            "Built barrel re-export cache: {} barrels cached",
+            barrel_cache.len()
+        ));
+
         // Resolve cross-file calls
         let mut cross_file_edges = Vec::new();
         for pf in parsed_files {
@@ -195,7 +212,7 @@ impl GraphBuilder {
                     }
 
                     // If file-scoped lookup failed and candidate is a barrel file,
-                    // follow re-export chain: extract barrel's re-exports to find real source.
+                    // follow re-export chain: use cached re-exports to find real source.
                     if !resolved {
                         let barrel_candidates =
                             resolver.resolve(source_module, &pf.path, pf.language);
@@ -208,7 +225,12 @@ impl GraphBuilder {
                                     || p.path.ends_with(candidate_file)
                                     || candidate_file.ends_with(&p.path)
                             }) {
-                                for reexport in extract_barrel_reexports(&barrel_pf.source) {
+                                // Use cached re-exports instead of re-parsing
+                                let reexports = barrel_cache
+                                    .get(&barrel_pf.path)
+                                    .cloned()
+                                    .unwrap_or_default();
+                                for reexport in reexports {
                                     let reexport_candidates = resolver.resolve(
                                         &reexport.source_path,
                                         &barrel_pf.path,
@@ -309,14 +331,23 @@ impl GraphBuilder {
             }
         }
 
-        for edge in cross_file_edges {
-            let _ = project_graph.add_edge(edge);
+        for edge in cross_file_edges.iter() {
+            let _ = project_graph.add_edge(edge.clone());
         }
 
-        // Build dispatch edges from class hierarchy
+        xfile_timer.stop_with_info(format!("{} edges added", cross_file_edges.len()));
+
+        // === PHASE 2: Dispatch edge building with granular timing ===
+        let dispatch_timer = crate::core::Timer::start("Dispatch edge building");
+
         // Collect method names per class from the graph
+        // (Phase 3 optimization: only process method nodes, not all node kinds)
         let mut class_methods: HashMap<String, HashSet<String>> = HashMap::new();
         for (_, node) in project_graph.nodes() {
+            // Only process method/constructor nodes (not functions, variables, etc.)
+            if !matches!(node.kind, NodeKind::Method | NodeKind::Constructor) {
+                continue;
+            }
             if let Some(class_name) = extract_class_from_full_name(&node.full_name) {
                 class_methods
                     .entry(class_name)
@@ -356,9 +387,11 @@ impl GraphBuilder {
             }
         }
 
-        for edge in dispatch_edges {
-            let _ = project_graph.add_edge(edge);
+        for edge in dispatch_edges.iter() {
+            let _ = project_graph.add_edge(edge.clone());
         }
+
+        dispatch_timer.stop_with_info(format!("{} edges added", dispatch_edges.len()));
 
         Ok(project_graph)
     }
@@ -572,6 +605,7 @@ fn is_test_like(name: &str) -> bool {
 }
 
 /// A re-export extracted from a barrel file's source text.
+#[derive(Clone)]
 struct BarrelReexport {
     /// The name as exported (may be an alias).
     exported_name: String,
