@@ -17,17 +17,24 @@ use petgraph::graph::NodeIndex;
 use super::code_graph::CodeGraph;
 use super::import_resolver::ImportResolver;
 
-/// Compute priority for a call based on resolution confidence and simplicity.
+/// Compute priority for a call based on resolution confidence, simplicity, and reachability.
 /// Phase 3 optimization: process high-confidence calls first for cache locality.
-fn compute_call_priority(call: &crate::core::UnresolvedCall) -> u32 {
+/// Phase 2 optimization: prioritize calls from reachable functions (demand-driven).
+fn compute_call_priority(call: &crate::core::UnresolvedCall, is_caller_reachable: bool) -> u32 {
     let mut priority = 0;
 
-    // Priority 1: File-scoped calls (has source_module) - higher confidence
+    // Phase 2: Reachability-based priority (demand-driven)
+    // Calls from reachable functions have higher priority
+    if is_caller_reachable {
+        priority += 200; // Highest priority: reachable callers
+    }
+
+    // Phase 3: File-scoped calls (has source_module) - higher confidence
     if call.source_module.is_some() {
         priority += 100;
     }
 
-    // Priority 2: No import aliasing - simpler resolution, fewer fallbacks
+    // Phase 3: No import aliasing - simpler resolution, fewer fallbacks
     if call.imported_as.is_none() {
         priority += 10;
     }
@@ -158,6 +165,25 @@ impl GraphBuilder {
             final_rss
         ));
 
+        // === PHASE 2: Demand-driven filtering - only resolve calls from reachable functions ===
+        // Compute intra-file reachability from entry points BEFORE cross-file resolution
+        // This allows us to skip resolving calls from unreachable (dead code) functions
+        let dd_timer = crate::core::Timer::start("Demand-driven reachability filtering");
+        let intrafile_reachable = project_graph.compute_production_reachable();
+        let intrafile_test_reachable = project_graph.compute_test_reachable();
+        let all_reachable: std::collections::HashSet<NodeIndex> = intrafile_reachable
+            .union(&intrafile_test_reachable)
+            .copied()
+            .collect();
+
+        crate::core::trace_msg(format!(
+            "Computed intra-file reachability: {} production + {} test = {} total reachable nodes",
+            intrafile_reachable.len(),
+            intrafile_test_reachable.len(),
+            all_reachable.len()
+        ));
+        dd_timer.stop();
+
         // Barrel file suffixes for re-export chain resolution
         let barrel_suffixes = [
             "index.ts",
@@ -221,6 +247,9 @@ impl GraphBuilder {
             .sum();
 
         // Collect all unresolved calls with their caller files for priority-based worklist
+        // === PHASE 2: Use reachability info for smart prioritization ===
+        // Note: We resolve ALL calls, but prioritize calls from reachable functions
+        // This is "demand-driven" in that we demand resolution for high-value calls first
         let mut all_unresolved_calls: Vec<(&crate::core::UnresolvedCall, String, Language)> = Vec::new();
         for pf in parsed_files {
             for unresolved in &pf.unresolved_calls {
@@ -230,19 +259,32 @@ impl GraphBuilder {
 
         // Build priority worklist (BinaryHeap for efficient max-priority extraction)
         // Store (priority, index) pairs to look up calls separately
+        // === PHASE 2: Include reachability info in priority computation ===
         let mut worklist: BinaryHeap<(std::cmp::Reverse<u32>, usize)> = all_unresolved_calls
             .iter()
             .enumerate()
             .map(|(i, (call, _, _))| {
-                let priority = compute_call_priority(call);
+                let caller_idx = project_graph.get_index(call.caller_id);
+                let is_caller_reachable = caller_idx.map(|idx| all_reachable.contains(&idx)).unwrap_or(false);
+                let priority = compute_call_priority(call, is_caller_reachable);
                 // Use Reverse for max-heap behavior (higher priority popped first)
                 (std::cmp::Reverse(priority), i)
             })
             .collect();
 
+        // Count reachable callers in worklist for logging
+        let reachable_caller_calls = all_unresolved_calls
+            .iter()
+            .filter(|(call, _, _)| {
+                let caller_idx = project_graph.get_index(call.caller_id);
+                caller_idx.map(|idx| all_reachable.contains(&idx)).unwrap_or(false)
+            })
+            .count();
+
         crate::core::trace_msg(format!(
-            "Built priority worklist: {} calls, processing high-confidence first",
-            worklist.len()
+            "Built priority worklist: {} calls ({} from reachable functions), processing demand-driven",
+            worklist.len(),
+            reachable_caller_calls
         ));
 
         // Resolve cross-file calls using priority worklist
