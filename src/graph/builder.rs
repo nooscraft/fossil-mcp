@@ -4,7 +4,7 @@
 //! in `ParsedFile`s. It resolves intra-file calls by name matching and tracks
 //! unresolved cross-file calls for later aggregation.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use crate::core::{
     CallEdge, CodeNode, EdgeConfidence, Language, NodeId, NodeKind, ParsedFile, SourceLocation,
@@ -16,6 +16,24 @@ use petgraph::graph::NodeIndex;
 
 use super::code_graph::CodeGraph;
 use super::import_resolver::ImportResolver;
+
+/// Compute priority for a call based on resolution confidence and simplicity.
+/// Phase 3 optimization: process high-confidence calls first for cache locality.
+fn compute_call_priority(call: &crate::core::UnresolvedCall) -> u32 {
+    let mut priority = 0;
+
+    // Priority 1: File-scoped calls (has source_module) - higher confidence
+    if call.source_module.is_some() {
+        priority += 100;
+    }
+
+    // Priority 2: No import aliasing - simpler resolution, fewer fallbacks
+    if call.imported_as.is_none() {
+        priority += 10;
+    }
+
+    priority
+}
 
 /// Builds a `CodeGraph` from parsed source files.
 pub struct GraphBuilder {
@@ -187,17 +205,51 @@ impl GraphBuilder {
         // Cache for resolved clusters: (source_module, callee_name) -> resolved_target_id
         let mut resolution_cache: HashMap<(Option<String>, String), Option<NodeId>> = HashMap::new();
 
-        // Count total calls before clustering
+        // === PHASE 3: Build priority worklist for high-confidence calls ===
+        // Collect all unresolved calls with caller file context
+        let mut caller_file_map: HashMap<NodeId, String> = HashMap::new();
+        for pf in parsed_files {
+            for node in &pf.nodes {
+                caller_file_map.insert(node.id, pf.path.clone());
+            }
+        }
+
+        // Count total calls before worklist optimization
         let total_unresolved_calls: usize = parsed_files
             .iter()
             .map(|pf| pf.unresolved_calls.len())
             .sum();
 
-        // Resolve cross-file calls
-        let mut cross_file_edges = Vec::new();
-        let mut clustered_resolutions = 0;
+        // Collect all unresolved calls with their caller files for priority-based worklist
+        let mut all_unresolved_calls: Vec<(&crate::core::UnresolvedCall, String, Language)> = Vec::new();
         for pf in parsed_files {
             for unresolved in &pf.unresolved_calls {
+                all_unresolved_calls.push((unresolved, pf.path.clone(), pf.language));
+            }
+        }
+
+        // Build priority worklist (BinaryHeap for efficient max-priority extraction)
+        // Store (priority, index) pairs to look up calls separately
+        let mut worklist: BinaryHeap<(std::cmp::Reverse<u32>, usize)> = all_unresolved_calls
+            .iter()
+            .enumerate()
+            .map(|(i, (call, _, _))| {
+                let priority = compute_call_priority(call);
+                // Use Reverse for max-heap behavior (higher priority popped first)
+                (std::cmp::Reverse(priority), i)
+            })
+            .collect();
+
+        crate::core::trace_msg(format!(
+            "Built priority worklist: {} calls, processing high-confidence first",
+            worklist.len()
+        ));
+
+        // Resolve cross-file calls using priority worklist
+        let mut cross_file_edges = Vec::new();
+        let mut clustered_resolutions = 0;
+        while let Some((_, call_index)) = worklist.pop() {
+            let (unresolved, caller_file, caller_lang) = &all_unresolved_calls[call_index];
                 // Try the imported_as name first, then fall back to callee_name
                 let callee_name = unresolved
                     .imported_as
@@ -223,7 +275,7 @@ impl GraphBuilder {
                 let mut resolved = false;
                 let mut resolved_id: Option<NodeId> = None;
                 if let Some(source_module) = &unresolved.source_module {
-                    let candidates = resolver.resolve(source_module, &pf.path, pf.language);
+                    let candidates = resolver.resolve(source_module, caller_file, *caller_lang);
                     if let Some(callee_idx) =
                         project_graph.find_node_by_name_in_files(callee_name, &candidates)
                     {
@@ -258,7 +310,7 @@ impl GraphBuilder {
                     // follow re-export chain: use cached re-exports to find real source.
                     if !resolved {
                         let barrel_candidates =
-                            resolver.resolve(source_module, &pf.path, pf.language);
+                            resolver.resolve(source_module, caller_file, *caller_lang);
                         for candidate_file in &barrel_candidates {
                             if !barrel_suffixes.iter().any(|s| candidate_file.ends_with(s)) {
                                 continue;
@@ -360,12 +412,10 @@ impl GraphBuilder {
 
                 // Fall back to proximity-based global lookup (language-scoped)
                 if !resolved {
-                    let caller_file = &pf.path;
-                    let caller_lang = pf.language;
                     resolved = Self::resolve_global_with_proximity(
                         callee_name,
-                        caller_file,
-                        caller_lang,
+                        caller_file.as_str(),
+                        *caller_lang,
                         &unresolved.caller_id,
                         &project_graph,
                         &mut cross_file_edges,
@@ -373,8 +423,8 @@ impl GraphBuilder {
                     if !resolved && unresolved.imported_as.is_some() {
                         Self::resolve_global_with_proximity(
                             &unresolved.callee_name,
-                            caller_file,
-                            caller_lang,
+                            caller_file.as_str(),
+                            *caller_lang,
                             &unresolved.caller_id,
                             &project_graph,
                             &mut cross_file_edges,
@@ -382,12 +432,11 @@ impl GraphBuilder {
                     }
                 }
 
-                // === PHASE 4: Update cache with resolved target for this (source_module, callee_name) cluster ===
-                // Only cache file-scoped resolutions (those with source_module)
-                // Global resolutions can have multiple targets, so we skip caching those
-                if unresolved.source_module.is_some() {
-                    resolution_cache.insert(cluster_key, resolved_id);
-                }
+            // === PHASE 4: Update cache with resolved target for this (source_module, callee_name) cluster ===
+            // Only cache file-scoped resolutions (those with source_module)
+            // Global resolutions can have multiple targets, so we skip caching those
+            if unresolved.source_module.is_some() {
+                resolution_cache.insert(cluster_key, resolved_id);
             }
         }
 
