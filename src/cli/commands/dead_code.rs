@@ -4,6 +4,8 @@ use std::path::Path;
 
 use crate::core::Language;
 use crate::dead_code::detector::{Detector, DetectorConfig};
+use crate::analysis::{CodeGraphStats, Pipeline};
+use crate::config::cache::{CacheStore, CacheConfig};
 
 use super::{dead_code_to_findings, format_findings, parse_confidence};
 
@@ -15,6 +17,10 @@ pub fn run(
     language: Option<&str>,
     format: &str,
     quiet: bool,
+    stats: bool,
+    cache_dir: Option<&Path>,
+    cache_stats: bool,
+    diff: Option<&str>,
 ) -> Result<String, crate::core::Error> {
     if !quiet {
         eprintln!("Analyzing dead code in: {}", path.display());
@@ -46,7 +52,7 @@ pub fn run(
         Some(path),
     );
 
-    let config = DetectorConfig {
+    let detector_config = DetectorConfig {
         include_tests,
         min_confidence: parse_confidence(min_confidence),
         min_lines,
@@ -57,8 +63,46 @@ pub fn run(
         entry_point_rules: Some(rules),
     };
 
-    let detector = Detector::new(config);
-    let result = detector.detect(path)?;
+    let detector = Detector::new(detector_config);
+
+    // Run pipeline with differential analysis if --diff is specified, otherwise run full pipeline
+    let pipeline_result = if let Some(base_branch) = diff {
+        let pipeline = Pipeline::with_defaults();
+        pipeline.run_with_diff(path, base_branch, cache_dir)?
+    } else {
+        let pipeline = Pipeline::with_defaults();
+        pipeline.run(path)?
+    };
+
+    // Run detection on the built graph
+    let result = detector.detect_with_parsed_files(&pipeline_result.graph, &pipeline_result.parsed_files)?;
+
+    // Display cache statistics if requested
+    if cache_stats {
+        if let Some(dir) = cache_dir {
+            let config = CacheConfig {
+                enabled: true,
+                cache_dir: Some(dir.to_string_lossy().to_string()),
+                ttl_hours: 168,
+            };
+            let cache_store = CacheStore::new(&config)?;
+            match cache_store.get_stats() {
+                Ok(stats) => {
+                    eprintln!(
+                        "\nCache Statistics:\n  Files: {}\n  Hit Rate: {:.1}%\n  Size: {:.2} MB",
+                        stats.total_files,
+                        stats.hit_rate(),
+                        stats.total_size_mb()
+                    );
+                }
+                Err(e) => {
+                    eprintln!("\nCache statistics error: {}", e);
+                }
+            }
+        } else {
+            eprintln!("\nCache statistics requested but --cache-dir not specified");
+        }
+    }
 
     if !quiet {
         eprintln!(
@@ -86,6 +130,14 @@ pub fn run(
 
     if !quiet && findings.is_empty() {
         eprintln!("No dead code found.");
+    }
+
+    // Compute and print graph statistics if requested
+    if stats {
+        let pipeline = Pipeline::with_defaults();
+        let pipeline_result = pipeline.run(path)?;
+        let graph_stats = CodeGraphStats::compute(&pipeline_result.graph);
+        eprint!("{}", graph_stats.report());
     }
 
     format_findings(&findings, format)

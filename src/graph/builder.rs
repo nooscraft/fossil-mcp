@@ -10,6 +10,7 @@ use crate::core::{
     CallEdge, CodeNode, EdgeConfidence, Language, NodeId, NodeKind, ParsedFile, SourceLocation,
     Visibility,
 };
+use crate::analysis::get_rss_mb;
 use crate::parsers::{extract_calls, extract_functions, ParserRegistry, ZeroCopyParseTree};
 use petgraph::graph::NodeIndex;
 
@@ -111,12 +112,33 @@ impl GraphBuilder {
         parsed_files: &[ParsedFile],
     ) -> Result<CodeGraph, crate::core::Error> {
         let mut project_graph = CodeGraph::new();
+        let timer = crate::core::Timer::start("Building project graph");
 
         // Build per-file graphs and merge
-        for pf in parsed_files {
+        for (file_idx, pf) in parsed_files.iter().enumerate() {
             let file_graph = self.build_from_parsed_file(pf)?;
             project_graph.merge(&file_graph);
+
+            // Log progress and memory every 100 files
+            if (file_idx + 1) % 100 == 0 {
+                let rss = get_rss_mb();
+                crate::core::trace_msg(format!(
+                    "Merged {} files, nodes: {}, edges: {}, memory: {}MB",
+                    file_idx + 1,
+                    project_graph.node_count(),
+                    project_graph.edge_count(),
+                    rss
+                ));
+            }
         }
+
+        let final_rss = get_rss_mb();
+        timer.stop_with_info(format!(
+            "nodes: {}, edges: {}, memory: {}MB",
+            project_graph.node_count(),
+            project_graph.edge_count(),
+            final_rss
+        ));
 
         // Barrel file suffixes for re-export chain resolution
         let barrel_suffixes = [
@@ -695,6 +717,7 @@ fn extract_python_reexports(trimmed: &str) -> Option<Vec<BarrelReexport>> {
     }
     Some(results)
 }
+
 
 #[cfg(test)]
 mod tests {

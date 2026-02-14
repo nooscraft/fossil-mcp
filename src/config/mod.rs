@@ -1,5 +1,6 @@
 //! Unified configuration with TOML/YAML/JSON support and environment overrides.
 
+pub mod cache;
 pub mod presets;
 
 use std::path::Path;
@@ -16,6 +17,7 @@ pub struct FossilConfig {
     pub output: OutputConfig,
     pub entry_points: EntryPointConfig,
     pub ci: CiConfig,
+    pub cache: cache::CacheConfig,
 }
 
 impl FossilConfig {

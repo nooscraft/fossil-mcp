@@ -6,12 +6,14 @@
 //! - `CFG` — intra-procedural control flow graph
 //! - `Dominance` — dominator tree construction
 
+pub mod bloom_filter;
 pub mod builder;
 pub mod centrality;
 pub mod cfg;
 pub mod class_hierarchy;
 pub mod code_graph;
 pub mod constant_prop;
+pub mod csr_format;
 pub mod dataflow;
 pub mod expr_evaluator;
 pub mod import_resolver;
@@ -24,6 +26,7 @@ pub mod symbol_table;
 pub mod var_extractor;
 pub mod vta;
 
+pub use bloom_filter::BloomFilter;
 pub use builder::GraphBuilder;
 pub use centrality::{
     classify_importance, compute_betweenness, compute_centrality, compute_pagerank,
@@ -32,6 +35,7 @@ pub use centrality::{
 pub use cfg::{BasicBlock, CfgEdgeKind, CfgNodeId, ControlFlowGraph};
 pub use class_hierarchy::ClassHierarchy;
 pub use code_graph::CodeGraph;
+pub use csr_format::CsrGraph;
 pub use constant_prop::{
     analyze_constants, analyze_constants_with_expressions, analyze_constants_with_values,
     evaluate_expression, ConstEnv, ConstPropResult, ConstValue, ConstantAssignment, DeadBranch,

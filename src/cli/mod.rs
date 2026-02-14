@@ -235,6 +235,23 @@ enum Commands {
         /// Use comma-separated list for multiple: rust,python,go
         #[arg(long)]
         language: Option<String>,
+
+        /// Print graph statistics (cardinality estimates using HyperLogLog)
+        #[arg(long)]
+        stats: bool,
+
+        /// Cache directory for persistent analysis results
+        #[arg(long)]
+        cache_dir: Option<PathBuf>,
+
+        /// Print cache statistics (hit rate, memory usage)
+        #[arg(long)]
+        cache_stats: bool,
+
+        /// Analyze only changed files (requires git repository)
+        /// Provide base branch name (e.g., main, develop) or leave empty for git diff HEAD~1
+        #[arg(long, value_name = "BASE_BRANCH")]
+        diff: Option<String>,
     },
 
     /// Detect code clones (duplicated code)
@@ -307,6 +324,18 @@ enum Commands {
         action: RulesAction,
     },
 
+    /// Stress test: measure performance on large projects
+    #[command(name = "stress-test")]
+    StressTest {
+        /// Path to analyze (defaults to current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Compare full vs streaming pipeline approaches
+        #[arg(long)]
+        compare: bool,
+    },
+
     /// Update fossil-mcp to the latest version
     Update {
         /// Check for updates without installing
@@ -367,6 +396,10 @@ pub fn run() {
             min_confidence,
             min_lines,
             language,
+            stats,
+            cache_dir,
+            cache_stats,
+            diff,
         } => commands::dead_code::run(
             &path,
             include_tests,
@@ -375,6 +408,10 @@ pub fn run() {
             language.as_deref(),
             &cli.format,
             cli.quiet,
+            stats,
+            cache_dir.as_deref(),
+            cache_stats,
+            diff.as_deref(),
         ),
 
         Commands::Clones {
@@ -420,6 +457,8 @@ pub fn run() {
             RulesAction::List => commands::rules::list(),
             RulesAction::Validate { path } => commands::rules::validate(&path),
         },
+
+        Commands::StressTest { path, compare } => commands::stress_test::run(&path, compare),
 
         Commands::Update { check } => commands::update::run(check),
     };

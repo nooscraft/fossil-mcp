@@ -3,6 +3,7 @@ pub mod clones;
 pub mod dead_code;
 pub mod rules;
 pub mod scan;
+pub mod stress_test;
 pub mod update;
 
 use crate::core::{Finding, Severity, SourceLocation};

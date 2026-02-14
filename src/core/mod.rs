@@ -23,7 +23,7 @@ pub use scoring::{
     PatternSignals, PriorityScore, StructuralSignals,
 };
 pub use text_utils::LineOffsetTable;
-pub use timer::Timer;
+pub use timer::{Timer, trace_msg};
 pub use traits::{
     CompiledPattern, LanguageParser, ParseTree, PatternMatch, PatternMatcher, ProgressReporter,
     Reporter, TreeNode,
