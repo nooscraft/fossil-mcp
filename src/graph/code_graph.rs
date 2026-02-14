@@ -16,6 +16,7 @@ pub struct CodeGraph {
     id_to_index: HashMap<NodeId, NodeIndex>,
     name_to_ids: HashMap<String, Vec<NodeId>>,
     file_to_node_ids: HashMap<String, Vec<NodeId>>,
+    file_name_index: HashMap<(String, String), Vec<NodeIndex>>, // NEW: (file, name) -> list of NodeIndices
     entry_points: HashSet<NodeIndex>,
     test_entry_points: HashSet<NodeIndex>,
     language: Option<Language>,
@@ -28,6 +29,7 @@ impl CodeGraph {
             id_to_index: HashMap::new(),
             name_to_ids: HashMap::new(),
             file_to_node_ids: HashMap::new(),
+            file_name_index: HashMap::new(),
             entry_points: HashSet::new(),
             test_entry_points: HashSet::new(),
             language: None,
@@ -47,11 +49,13 @@ impl CodeGraph {
         let file = node.location.file.clone();
         let idx = self.graph.add_node(node);
         self.id_to_index.insert(id, idx);
-        self.name_to_ids.entry(name).or_default().push(id);
+        self.name_to_ids.entry(name.clone()).or_default().push(id);
         if full_name != id.to_string() {
             self.name_to_ids.entry(full_name).or_default().push(id);
         }
-        self.file_to_node_ids.entry(file).or_default().push(id);
+        self.file_to_node_ids.entry(file.clone()).or_default().push(id);
+        // NEW: Add to file_name_index for O(1) lookups (supports multiple overloads)
+        self.file_name_index.entry((file, name)).or_default().push(idx);
         idx
     }
 
@@ -110,15 +114,11 @@ impl CodeGraph {
     }
 
     /// Find a node by name scoped to a specific file.
+    /// O(1) complexity via file_name_index direct lookup (returns first match if overloaded).
     pub fn find_node_by_name_in_file(&self, name: &str, file: &str) -> Option<NodeIndex> {
-        let file_nodes = self.file_to_node_ids.get(file)?;
-        let name_nodes = self.name_to_ids.get(name)?;
-        for id in name_nodes {
-            if file_nodes.contains(id) {
-                return self.id_to_index.get(id).copied();
-            }
-        }
-        None
+        self.file_name_index
+            .get(&(file.to_string(), name.to_string()))
+            .and_then(|indices| indices.first().copied())
     }
 
     /// Find a node by name scoped to any of the given candidate files.
