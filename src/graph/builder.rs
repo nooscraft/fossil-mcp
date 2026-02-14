@@ -169,8 +169,33 @@ impl GraphBuilder {
             barrel_cache.len()
         ));
 
+        // === QUICK WIN: Build barrel ParsedFile index ===
+        // (Quick Win optimization: eliminate O(4030) linear scan per barrel lookup)
+        // Pre-build HashMap<path, &ParsedFile> for barrel files to avoid iter().find()
+        let mut barrel_pf_index: HashMap<String, &ParsedFile> = HashMap::new();
+        for pf in parsed_files {
+            if barrel_suffixes.iter().any(|s| pf.path.ends_with(s)) {
+                barrel_pf_index.insert(pf.path.clone(), pf);
+            }
+        }
+        crate::core::trace_msg(format!(
+            "Built barrel ParsedFile index: {} entries",
+            barrel_pf_index.len()
+        ));
+
+        // === PHASE 4: Call clustering - resolve identical (source_module, callee_name) calls once ===
+        // Cache for resolved clusters: (source_module, callee_name) -> resolved_target_id
+        let mut resolution_cache: HashMap<(Option<String>, String), Option<NodeId>> = HashMap::new();
+
+        // Count total calls before clustering
+        let total_unresolved_calls: usize = parsed_files
+            .iter()
+            .map(|pf| pf.unresolved_calls.len())
+            .sum();
+
         // Resolve cross-file calls
         let mut cross_file_edges = Vec::new();
+        let mut clustered_resolutions = 0;
         for pf in parsed_files {
             for unresolved in &pf.unresolved_calls {
                 // Try the imported_as name first, then fall back to callee_name
@@ -179,8 +204,24 @@ impl GraphBuilder {
                     .as_deref()
                     .unwrap_or(&unresolved.callee_name);
 
+                // === PHASE 4: Check if this (source_module, callee_name) has already been resolved ===
+                let cluster_key = (unresolved.source_module.clone(), callee_name.to_string());
+                if let Some(cached_result) = resolution_cache.get(&cluster_key) {
+                    // Reuse cached resolution without repeating the work
+                    if let Some(resolved_id) = cached_result {
+                        cross_file_edges.push(CallEdge::new(
+                            unresolved.caller_id,
+                            resolved_id.clone(),
+                            EdgeConfidence::HighLikely,
+                        ));
+                        clustered_resolutions += 1;
+                    }
+                    continue; // Skip detailed resolution for this call
+                }
+
                 // Try file-scoped resolution first (higher confidence)
                 let mut resolved = false;
+                let mut resolved_id: Option<NodeId> = None;
                 if let Some(source_module) = &unresolved.source_module {
                     let candidates = resolver.resolve(source_module, &pf.path, pf.language);
                     if let Some(callee_idx) =
@@ -189,10 +230,11 @@ impl GraphBuilder {
                         if let Some(to_id) = project_graph.get_node(callee_idx).map(|n| n.id) {
                             cross_file_edges.push(CallEdge::new(
                                 unresolved.caller_id,
-                                to_id,
+                                to_id.clone(),
                                 EdgeConfidence::HighLikely,
                             ));
                             resolved = true;
+                            resolved_id = Some(to_id);
                         }
                     }
                     // Also try original callee_name in scoped files
@@ -203,10 +245,11 @@ impl GraphBuilder {
                             if let Some(to_id) = project_graph.get_node(callee_idx).map(|n| n.id) {
                                 cross_file_edges.push(CallEdge::new(
                                     unresolved.caller_id,
-                                    to_id,
+                                    to_id.clone(),
                                     EdgeConfidence::HighLikely,
                                 ));
                                 resolved = true;
+                                resolved_id = Some(to_id);
                             }
                         }
                     }
@@ -220,11 +263,18 @@ impl GraphBuilder {
                             if !barrel_suffixes.iter().any(|s| candidate_file.ends_with(s)) {
                                 continue;
                             }
-                            if let Some(barrel_pf) = parsed_files.iter().find(|p| {
-                                p.path == *candidate_file
-                                    || p.path.ends_with(candidate_file)
-                                    || candidate_file.ends_with(&p.path)
-                            }) {
+                            // === QUICK WIN: Use HashMap instead of iter().find() ===
+                            // Try exact match first (O(1)), then fuzzy match fallback (O(barrels))
+                            let mut barrel_pf: Option<&&ParsedFile> = barrel_pf_index.get(candidate_file);
+
+                            // Fallback to fuzzy matching if exact match failed
+                            if barrel_pf.is_none() {
+                                barrel_pf = barrel_pf_index.iter().find(|(path, _)| {
+                                    path.ends_with(candidate_file.as_str()) || candidate_file.ends_with(path.as_str())
+                                }).map(|(_, pf)| pf);
+                            }
+
+                            if let Some(&barrel_pf) = barrel_pf {
                                 // Use cached re-exports instead of re-parsing
                                 let reexports = barrel_cache
                                     .get(&barrel_pf.path)
@@ -248,10 +298,11 @@ impl GraphBuilder {
                                             {
                                                 cross_file_edges.push(CallEdge::new(
                                                     unresolved.caller_id,
-                                                    to_id,
+                                                    to_id.clone(),
                                                     EdgeConfidence::HighLikely,
                                                 ));
                                                 resolved = true;
+                                                resolved_id = Some(to_id);
                                             }
                                         }
                                     } else if reexport.exported_name == "*" {
@@ -266,10 +317,11 @@ impl GraphBuilder {
                                             {
                                                 cross_file_edges.push(CallEdge::new(
                                                     unresolved.caller_id,
-                                                    to_id,
+                                                    to_id.clone(),
                                                     EdgeConfidence::HighLikely,
                                                 ));
                                                 resolved = true;
+                                                resolved_id = Some(to_id);
                                             }
                                         }
                                         // Also try original callee_name if it was renamed via import
@@ -285,10 +337,11 @@ impl GraphBuilder {
                                                 {
                                                     cross_file_edges.push(CallEdge::new(
                                                         unresolved.caller_id,
-                                                        to_id,
+                                                        to_id.clone(),
                                                         EdgeConfidence::HighLikely,
                                                     ));
                                                     resolved = true;
+                                                    resolved_id = Some(to_id);
                                                 }
                                             }
                                         }
@@ -328,8 +381,23 @@ impl GraphBuilder {
                         );
                     }
                 }
+
+                // === PHASE 4: Update cache with resolved target for this (source_module, callee_name) cluster ===
+                // Only cache file-scoped resolutions (those with source_module)
+                // Global resolutions can have multiple targets, so we skip caching those
+                if unresolved.source_module.is_some() {
+                    resolution_cache.insert(cluster_key, resolved_id);
+                }
             }
         }
+
+        // Log clustering impact
+        crate::core::trace_msg(format!(
+            "Call clustering: {} cache hits out of {} total calls ({:.1}% reduction)",
+            clustered_resolutions,
+            total_unresolved_calls,
+            100.0 * clustered_resolutions as f64 / total_unresolved_calls.max(1) as f64
+        ));
 
         for edge in cross_file_edges.iter() {
             let _ = project_graph.add_edge(edge.clone());

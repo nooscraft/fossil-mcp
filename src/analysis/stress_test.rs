@@ -9,7 +9,7 @@
 
 use std::path::Path;
 use std::time::Instant;
-use crate::analysis::{Pipeline, CodeGraphStats};
+use crate::analysis::Pipeline;
 use crate::core::Timer;
 
 /// Results from a stress test run.
