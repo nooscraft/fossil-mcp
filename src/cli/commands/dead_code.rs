@@ -57,7 +57,7 @@ pub fn run(
         min_confidence: parse_confidence(min_confidence),
         min_lines,
         exclude_patterns: Vec::new(),
-        detect_dead_stores: true,
+        detect_dead_stores: false, // Disabled by default: requires re-parsing all files (expensive)
         use_rta: true,
         use_sdg: false,
         entry_point_rules: Some(rules),
