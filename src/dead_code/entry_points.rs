@@ -12,20 +12,43 @@ use regex::Regex;
 pub struct EntryPointDetector<'a> {
     graph: &'a CodeGraph,
     rules: crate::config::ResolvedEntryPointRules,
+    serde_targets: HashSet<String>,  // Pre-built set of function names referenced by serde attrs
 }
 
 impl<'a> EntryPointDetector<'a> {
     /// Create a detector with default hardcoded rules (backward compatible).
     pub fn new(graph: &'a CodeGraph) -> Self {
+        let serde_targets = Self::build_serde_target_index(graph);
         Self {
             graph,
             rules: crate::config::ResolvedEntryPointRules::with_defaults(),
+            serde_targets,
         }
     }
 
     /// Create a detector with custom entry point rules.
     pub fn with_rules(graph: &'a CodeGraph, rules: crate::config::ResolvedEntryPointRules) -> Self {
-        Self { graph, rules }
+        let serde_targets = Self::build_serde_target_index(graph);
+        Self { graph, rules, serde_targets }
+    }
+
+    /// Build a set of function names referenced by serde attributes (O(n) preprocessing).
+    /// This eliminates the O(n²) nested loop in is_framework_entry().
+    fn build_serde_target_index(graph: &'a CodeGraph) -> HashSet<String> {
+        let mut targets = HashSet::new();
+        for (_, node) in graph.nodes() {
+            for attr in &node.attributes {
+                if attr.starts_with("serde_default:")
+                    || attr.starts_with("serde_serialize_with:")
+                    || attr.starts_with("serde_deserialize_with:")
+                {
+                    if let Some(fn_name) = attr.split(':').nth(1) {
+                        targets.insert(fn_name.to_string());
+                    }
+                }
+            }
+        }
+        targets
     }
 
     /// Detect production entry points.
@@ -129,19 +152,8 @@ impl<'a> EntryPointDetector<'a> {
         }
 
         // Check if this function is referenced by a serde attribute on another node
-        let is_serde_target = self.graph.nodes().any(|(_, other)| {
-            other.attributes.iter().any(|a| {
-                (a.starts_with("serde_default:")
-                    || a.starts_with("serde_serialize_with:")
-                    || a.starts_with("serde_deserialize_with:"))
-                    && a.split(':')
-                        .nth(1)
-                        .map(|fn_name| fn_name == node.name)
-                        .unwrap_or(false)
-            })
-        });
-
-        if is_serde_target {
+        // OPTIMIZATION: Use pre-built serde_targets set instead of O(n²) nested loop
+        if self.serde_targets.contains(&node.name) {
             return true;
         }
 
