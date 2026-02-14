@@ -504,6 +504,21 @@ impl Detector {
             return;
         }
 
+        // OPTIMIZATION: Pre-build index of uses by variable name (O(u))
+        // instead of scanning all_uses linearly for each def (O(d × u))
+        let mut uses_by_name: std::collections::HashMap<&str, Vec<usize>> =
+            std::collections::HashMap::new();
+        for (use_name, use_pos) in &all_uses {
+            uses_by_name
+                .entry(use_name.as_str())
+                .or_default()
+                .push(*use_pos);
+        }
+        // Sort positions for binary search (O(u log u))
+        for positions in uses_by_name.values_mut() {
+            positions.sort_unstable();
+        }
+
         // A def is dead if no use of the same variable name exists at a strictly
         // later byte position. This is a conservative approximation (low FP, some FN).
         for (def_name, start_byte, end_byte, _in_cond) in &all_defs {
@@ -529,9 +544,17 @@ impl Detector {
                 continue;
             }
 
-            let has_later_use = all_uses
-                .iter()
-                .any(|(use_name, use_pos)| use_name == def_name && *use_pos > *start_byte);
+            // OPTIMIZATION: O(log u) binary search on indexed positions instead of O(u) linear scan
+            let has_later_use = uses_by_name
+                .get(def_name.as_str())
+                .map(|positions| {
+                    // Binary search for first position > start_byte
+                    match positions.binary_search(&start_byte) {
+                        Ok(idx) => idx + 1 < positions.len(),  // Found exact match, check if later use exists
+                        Err(idx) => idx < positions.len(),      // Not found, idx is insertion point
+                    }
+                })
+                .unwrap_or(false);
 
             if !has_later_use {
                 let line_start = line_table.byte_to_line1(*start_byte);

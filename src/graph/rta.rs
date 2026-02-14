@@ -119,12 +119,17 @@ impl RapidTypeAnalysis {
         // Second pass: now that we have all instantiated types, re-resolve any
         // virtual calls that may have gained new targets due to types discovered
         // later in the iteration.
-        let mut changed = true;
-        while changed {
-            changed = false;
+        // OPTIMIZATION: Track only newly-added methods instead of re-scanning all reachable_methods.
+        // This reduces iteration from O(reachable_methods) × (virtual calls) to O(new_methods) × (virtual calls).
+        let mut methods_to_reprocess: Vec<NodeIndex> = worklist.drain(..).collect();
+        let mut iteration = 0;
+        const MAX_ITERATIONS: usize = 100;  // Safety limit to prevent infinite loops
 
-            let current_reachable: Vec<NodeIndex> = reachable_methods.iter().copied().collect();
-            for method_idx in current_reachable {
+        while !methods_to_reprocess.is_empty() && iteration < MAX_ITERATIONS {
+            iteration += 1;
+            let mut new_methods = Vec::new();
+
+            for method_idx in methods_to_reprocess.drain(..) {
                 let virtual_calls = Self::find_virtual_calls(graph, method_idx, hierarchy);
                 for (call_site, receiver_type, method_name) in &virtual_calls {
                     let cha_targets = hierarchy.resolve_virtual_call(receiver_type, method_name);
@@ -136,15 +141,14 @@ impl RapidTypeAnalysis {
                     let entry = resolved_calls.entry(*call_site).or_default();
                     for target_type in &rta_targets {
                         if entry.insert(target_type.clone()) {
-                            changed = true;
-                            // Add newly resolved target methods.
+                            // Add newly resolved target methods for next iteration.
                             if let Some(indices) = class_method_indices.get(target_type) {
                                 for &idx in indices {
                                     if let Some(node) = graph.get_node(idx) {
                                         if node.name == *method_name
                                             && reachable_methods.insert(idx)
                                         {
-                                            worklist.push_back(idx);
+                                            new_methods.push(idx);
                                         }
                                     }
                                 }
@@ -163,7 +167,8 @@ impl RapidTypeAnalysis {
                                     Self::extract_type_from_constructor(callee_node, graph);
                                 if let Some(t) = type_name {
                                     if instantiated_types.insert(t) {
-                                        changed = true;
+                                        // New type discovered, add current method for reprocessing
+                                        new_methods.push(method_idx);
                                     }
                                 }
                             }
@@ -177,11 +182,15 @@ impl RapidTypeAnalysis {
                         Self::find_instantiated_types_from(graph, new_method, class_name_set);
                     for t in new_types {
                         if instantiated_types.insert(t) {
-                            changed = true;
+                            // New type discovered, add current method for reprocessing
+                            new_methods.push(method_idx);
                         }
                     }
                 }
             }
+
+            // Prepare next iteration with newly discovered methods
+            methods_to_reprocess = new_methods;
         }
 
         Self {
