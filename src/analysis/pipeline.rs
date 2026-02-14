@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Instant;
 
-use crate::core::{Language, ParsedFile};
+use crate::core::{Language, ParsedFile, Timer};
 use crate::graph::{CodeGraph, GraphBuilder};
 use crate::parsers::ParserRegistry;
 use rayon::prelude::*;
@@ -69,17 +69,21 @@ impl Pipeline {
     /// across Rayon threads in chunks of `num_files / (num_cpus * 2)`.
     pub fn run(&self, root: &Path) -> Result<PipelineResult, crate::core::Error> {
         let start = Instant::now();
+        let timer = Timer::start("Pipeline");
 
         // Scan for source files
+        let scan_timer = Timer::start_nested("File Scanning", "Pipeline");
         let scanner = FileScanner::new().with_max_file_size(self.config.max_file_size);
         let files = scanner.scan(root)?;
         let files_scanned = files.len();
         info!("Scanned {} source files", files_scanned);
+        scan_timer.stop_with_info(format!("{} files", files_scanned));
 
         // Group files by directory for cache locality
         let files = group_by_directory(files);
 
         // Parse files (parallel, chunk-based)
+        let parse_timer = Timer::start_nested("File Parsing", "Pipeline");
         let registry = ParserRegistry::with_defaults()?;
         let parse_results: Vec<Result<ParsedFile, (String, String)>> = if self.config.parallel {
             let chunk_size = compute_chunk_size(files_scanned);
@@ -114,8 +118,10 @@ impl Pipeline {
         }
         let files_parsed = parsed_files.len();
         info!("Parsed {} files ({} errors)", files_parsed, errors.len());
+        parse_timer.stop_with_info(format!("{} files parsed, {} errors", files_parsed, errors.len()));
 
         // Build project graph
+        let graph_timer = Timer::start_nested("Graph Building", "Pipeline");
         let builder = GraphBuilder::new()?;
         let graph = builder.build_project_graph(&parsed_files)?;
         info!(
@@ -123,8 +129,10 @@ impl Pipeline {
             graph.node_count(),
             graph.edge_count()
         );
+        graph_timer.stop_with_info(format!("{} nodes, {} edges", graph.node_count(), graph.edge_count()));
 
         let duration_ms = start.elapsed().as_millis() as u64;
+        timer.stop();
 
         Ok(PipelineResult {
             graph,

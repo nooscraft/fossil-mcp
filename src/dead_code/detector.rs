@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::analysis::Pipeline;
 use crate::core::{
-    Confidence, FossilType, LineOffsetTable, NodeKind, ParsedFile, RemovalImpact, Severity,
+    Confidence, FossilType, LineOffsetTable, NodeKind, ParsedFile, RemovalImpact, Severity, Timer,
 };
 use crate::graph::CodeGraph;
 use crate::parsers::ParserRegistry;
@@ -88,9 +88,16 @@ impl Detector {
 
     /// Run dead code detection on a directory.
     pub fn detect(&self, root: &Path) -> Result<DetectionResult, crate::core::Error> {
+        let timer = Timer::start("Dead Code Detection");
+
         let pipeline = Pipeline::with_defaults();
+        let parse_timer = Timer::start_nested("Parsing files", "Dead Code Detection");
         let pipeline_result = pipeline.run(root)?;
-        self.detect_with_parsed_files(&pipeline_result.graph, &pipeline_result.parsed_files)
+        parse_timer.stop_with_info(format!("{} files", pipeline_result.parsed_files.len()));
+
+        let result = self.detect_with_parsed_files(&pipeline_result.graph, &pipeline_result.parsed_files)?;
+        timer.stop();
+        Ok(result)
     }
 
     /// Run dead code detection on a pre-built CodeGraph.
@@ -108,7 +115,10 @@ impl Detector {
         graph: &CodeGraph,
         parsed_files: &[ParsedFile],
     ) -> Result<DetectionResult, crate::core::Error> {
+        let overall_timer = Timer::start("Graph Analysis");
+
         // Detect entry points using config rules if provided
+        let entry_timer = Timer::start_nested("Entry Point Detection", "Graph Analysis");
         let entry_detector = if let Some(ref rules) = self.config.entry_point_rules {
             EntryPointDetector::with_rules(graph, rules.clone())
         } else {
@@ -116,6 +126,7 @@ impl Detector {
         };
         let mut production_entries = entry_detector.detect_production_entry_points();
         let test_entries = entry_detector.detect_test_entry_points();
+        entry_timer.stop_with_info(format!("{} prod + {} test", production_entries.len(), test_entries.len()));
 
         // Detect config-based entry points (Dockerfile, docker-compose, package.json)
         // Only if we can infer a root path from the parsed files
@@ -128,6 +139,8 @@ impl Detector {
         }
 
         // Compute reachability
+        let reach_timer = Timer::start_nested("Reachability Analysis", "Graph Analysis");
+        let rta_mode = if self.config.use_rta { "with RTA" } else { "BFS" };
         let production_reachable = if self.config.use_rta {
             Self::compute_reachable_with_rta(graph, &production_entries)
         } else {
@@ -142,17 +155,24 @@ impl Detector {
         } else {
             HashSet::new()
         };
+        reach_timer.stop_with_info(format!("{} reachable ({} mode)", production_reachable.len(), rta_mode));
 
         // Def-use chain dead store detection
+        let store_timer = Timer::start_nested("Dead Store Detection", "Graph Analysis");
         let dead_store_findings = if self.config.detect_dead_stores && !parsed_files.is_empty() {
             Self::detect_dead_stores(parsed_files)
         } else {
             Vec::new()
         };
+        if !dead_store_findings.is_empty() {
+            store_timer.stop_with_info(format!("{} findings", dead_store_findings.len()));
+        }
 
         // Classify dead code
+        let classify_timer = Timer::start_nested("Dead Code Classification", "Graph Analysis");
         let classifier = DeadCodeClassifier::new(graph);
         let mut findings = classifier.classify(&production_reachable, &test_reachable);
+        classify_timer.stop_with_info(format!("{} findings", findings.len()));
 
         // Merge dead store findings into main findings
         findings.extend(dead_store_findings);
@@ -185,6 +205,12 @@ impl Detector {
             .union(&test_reachable)
             .copied()
             .collect();
+
+        overall_timer.stop_with_info(format!(
+            "{} total findings from {} nodes",
+            findings.len(),
+            graph.node_count()
+        ));
 
         Ok(DetectionResult {
             findings,
