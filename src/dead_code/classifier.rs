@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use crate::core::{
     CodeNode, Confidence, FossilType, NodeKind, RemovalImpact, Severity, Visibility,
 };
+use crate::dead_code::BddContextDetector;
 use crate::graph::CodeGraph;
 use petgraph::graph::NodeIndex;
 
@@ -149,6 +150,13 @@ impl<'a> DeadCodeClassifier<'a> {
             return Confidence::Low;
         }
 
+        // Check for behavior-driven markers (callbacks, middleware, lifecycle methods, etc.)
+        // These indicate code is actually alive despite appearing unreachable
+        let behavior_markers = BddContextDetector::detect_markers(node);
+        if !behavior_markers.is_empty() {
+            return Confidence::Low; // Behavior markers indicate code is likely alive
+        }
+
         // If centrality data is available and this node is in the top percentile,
         // downgrade confidence by one level (high-centrality nodes are risky to call dead)
         if let Some(ref scores) = self.centrality_scores {
@@ -216,11 +224,26 @@ impl<'a> DeadCodeClassifier<'a> {
         let kind_name = node.kind.to_string();
         let conf = confidence.to_string();
 
+        // Check for behavior markers to provide more context
+        let behavior_markers = BddContextDetector::detect_markers(node);
+        let behavior_hint = if !behavior_markers.is_empty() {
+            format!(
+                " (detected: {:?})",
+                behavior_markers
+                    .iter()
+                    .map(|m| format!("{:?}", m))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        } else {
+            String::new()
+        };
+
         match fossil_type {
             FossilType::DeadFunction => {
                 format!(
-                    "{} `{}` is never called ({} confidence)",
-                    kind_name, node.name, conf
+                    "{} `{}` is never called ({} confidence){}",
+                    kind_name, node.name, conf, behavior_hint
                 )
             }
             FossilType::UnusedImport => {
@@ -240,8 +263,8 @@ impl<'a> DeadCodeClassifier<'a> {
             }
             _ => {
                 format!(
-                    "{} `{}` is unreachable ({} confidence)",
-                    kind_name, node.name, conf
+                    "{} `{}` is unreachable ({} confidence){}",
+                    kind_name, node.name, conf, behavior_hint
                 )
             }
         }
