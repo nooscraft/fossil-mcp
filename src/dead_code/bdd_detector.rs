@@ -87,6 +87,11 @@ impl BddContextDetector {
             markers.push(BehaviorMarker::FactoryMethod);
         }
 
+        // Check config-driven patterns (Zustand, Redux, serialization)
+        if Self::is_config_driven(node) {
+            markers.push(BehaviorMarker::ConfigDriven);
+        }
+
         markers
     }
 
@@ -133,6 +138,13 @@ impl BddContextDetector {
         (node.name.starts_with("on")
             && node.name.len() > 2
             && node.name.chars().nth(2).map_or(false, |c| c.is_uppercase()))
+            // Lowercase DOM/SSE event handlers (onopen, onmessage, onerror, onclose, etc.)
+            || matches!(
+                node.name.as_str(),
+                "onopen" | "onmessage" | "onerror" | "onclose" | "onabort"
+                    | "onconnect" | "ondisconnect" | "ontimeout" | "ondata"
+                    | "onprogress" | "onload" | "onready" | "oncomplete"
+            )
             // handle* pattern (handleClick, handleChange, etc.)
             || name_lower.starts_with("handle")
             // *listener pattern (messageListener, errorListener, etc.)
@@ -168,6 +180,27 @@ impl BddContextDetector {
                     || attr.contains("register")
                     || attr.contains("plugin")
             })
+    }
+
+    /// Check if function is invoked via configuration or framework wiring
+    /// (Zustand persist options, Redux middleware, serialization hooks, etc.)
+    fn is_config_driven(node: &CodeNode) -> bool {
+        matches!(
+            node.name.as_str(),
+            "migrate"
+                | "serialize"
+                | "deserialize"
+                | "transform"
+                | "validate"
+                | "sanitize"
+                | "comparator"
+                | "reducer"
+                | "partialize"
+                | "onRehydrateStorage"
+                | "onFinishHydration"
+                | "getStorage"
+                | "setStorage"
+        )
     }
 
     /// Check if function is a factory method
@@ -406,6 +439,41 @@ mod tests {
 
         let node = make_node("normalFunction", vec!["@api"]);
         assert!(BddContextDetector::is_public_export(&node));
+    }
+
+    #[test]
+    fn test_lowercase_event_handler_detection() {
+        for name in &["onopen", "onmessage", "onerror", "onclose", "onload", "onprogress"] {
+            let node = make_node(name, vec![]);
+            assert!(
+                BddContextDetector::is_event_handler(&node),
+                "'{}' should be detected as event handler",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_config_driven_detection() {
+        for name in &["migrate", "serialize", "deserialize", "partialize", "onRehydrateStorage", "reducer"] {
+            let node = make_node(name, vec![]);
+            assert!(
+                BddContextDetector::is_config_driven(&node),
+                "'{}' should be detected as config-driven",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_config_driven_in_detect_markers() {
+        let node = make_node("migrate", vec![]);
+        let markers = BddContextDetector::detect_markers(&node);
+        assert!(
+            markers.contains(&BehaviorMarker::ConfigDriven),
+            "migrate should have ConfigDriven marker. Markers: {:?}",
+            markers
+        );
     }
 
     #[test]

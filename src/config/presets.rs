@@ -409,6 +409,38 @@ static PRESETS: &[Preset] = &[
             "setorder",
         ],
     },
+    // Zustand state management
+    Preset {
+        name: "zustand",
+        detect_files: &[],
+        detect_deps: &["zustand"],
+        entry_attributes: &[],
+        entry_functions: &[],
+        lifecycle_methods: &[
+            "migrate",
+            "onRehydrateStorage",
+            "partialize",
+            "merge",
+            "serialize",
+            "deserialize",
+            "getStorage",
+            "storage",
+        ],
+    },
+    // Redux / Redux Toolkit state management
+    Preset {
+        name: "redux",
+        detect_files: &[],
+        detect_deps: &["redux", "@reduxjs/toolkit", "react-redux"],
+        entry_attributes: &[],
+        entry_functions: &[],
+        lifecycle_methods: &[
+            "reducer",
+            "extraReducers",
+            "prepare",
+            "middleware",
+        ],
+    },
     // Python FFI bindings framework
     Preset {
         name: "pyo3",

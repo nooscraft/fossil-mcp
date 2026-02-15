@@ -88,6 +88,7 @@ impl<'a> EntryPointDetector<'a> {
             || self.is_module_entry(node)
             || self.is_exported_entry(node)
             || self.is_framework_entry(node)
+            || self.is_python_dunder(node)
     }
 
     fn is_main_function(&self, node: &CodeNode) -> bool {
@@ -138,6 +139,18 @@ impl<'a> EntryPointDetector<'a> {
     }
 
     fn is_framework_entry(&self, node: &CodeNode) -> bool {
+        // Python decorators that indicate the method is part of the class API
+        if node.language == crate::core::Language::Python
+            && node.attributes.iter().any(|attr| {
+                matches!(
+                    attr.as_str(),
+                    "property" | "staticmethod" | "classmethod" | "abstractmethod"
+                )
+            })
+        {
+            return true;
+        }
+
         // Check attributes against resolved rules
         let has_framework_attr = node.attributes.iter().any(|attr| {
             self.rules.matches_attribute(attr)
@@ -180,6 +193,20 @@ impl<'a> EntryPointDetector<'a> {
             || name.starts_with("r.POST")
             || name.starts_with("e.GET")
             || name.starts_with("e.POST")
+    }
+
+    /// Python dunder methods (__call__, __repr__, __getattr__, etc.) are
+    /// invoked by the runtime/operators, not by direct calls. Treat them as
+    /// entry points so they are not flagged as dead code.
+    fn is_python_dunder(&self, node: &CodeNode) -> bool {
+        node.language == crate::core::Language::Python
+            && node.name.starts_with("__")
+            && node.name.ends_with("__")
+            && node.name.len() > 4
+            && matches!(
+                node.kind,
+                NodeKind::Function | NodeKind::Method | NodeKind::AsyncFunction | NodeKind::AsyncMethod
+            )
     }
 
     fn is_test_entry(&self, node: &CodeNode) -> bool {
@@ -877,6 +904,101 @@ mod tests {
         assert!(
             entries.is_empty(),
             "Plain impl method should not be framework entry"
+        );
+    }
+
+    #[test]
+    fn test_python_dunder_is_entry_point() {
+        for name in &["__call__", "__repr__", "__getattr__", "__init__", "__enter__", "__exit__"] {
+            let mut graph = CodeGraph::new();
+            graph.add_node(make_node(name, NodeKind::Function, Visibility::Public));
+
+            let detector = EntryPointDetector::new(&graph);
+            let entries = detector.detect_production_entry_points();
+            assert!(
+                !entries.is_empty(),
+                "Python dunder '{}' should be detected as entry point",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_rust_dunder_not_entry_point() {
+        // __call__ in Rust should NOT be treated as a Python dunder entry point
+        let mut graph = CodeGraph::new();
+        graph.add_node(CodeNode::new(
+            "__call__".to_string(),
+            NodeKind::Function,
+            SourceLocation::new("test.rs".to_string(), 1, 10, 0, 0),
+            Language::Rust,
+            Visibility::Private,
+        ));
+
+        let detector = EntryPointDetector::new(&graph);
+        let entries = detector.detect_production_entry_points();
+        assert!(
+            entries.is_empty(),
+            "Rust '__call__' should NOT be a Python dunder entry point. Entries: {:?}",
+            entries
+        );
+    }
+
+    #[test]
+    fn test_python_short_dunder_not_entry_point() {
+        // "__x__" has len=5 which is > 4, but "__" (len=2) should not match
+        let mut graph = CodeGraph::new();
+        graph.add_node(make_node("__", NodeKind::Function, Visibility::Public));
+
+        let detector = EntryPointDetector::new(&graph);
+        let entries = detector.detect_production_entry_points();
+        assert!(
+            entries.is_empty(),
+            "'__' should NOT be a dunder entry point"
+        );
+    }
+
+    #[test]
+    fn test_python_property_is_framework_entry() {
+        for attr in &["property", "staticmethod", "classmethod", "abstractmethod"] {
+            let mut graph = CodeGraph::new();
+            graph.add_node(make_node_with_attrs(
+                "my_method",
+                NodeKind::Function,
+                Visibility::Public,
+                vec![attr],
+            ));
+
+            let detector = EntryPointDetector::new(&graph);
+            let entries = detector.detect_production_entry_points();
+            assert!(
+                !entries.is_empty(),
+                "Python @{} should be detected as entry point",
+                attr
+            );
+        }
+    }
+
+    #[test]
+    fn test_rust_property_attr_not_entry_point() {
+        // "property" attribute on Rust code should NOT trigger the Python decorator check
+        let mut graph = CodeGraph::new();
+        graph.add_node(
+            CodeNode::new(
+                "my_method".to_string(),
+                NodeKind::Function,
+                SourceLocation::new("test.rs".to_string(), 1, 10, 0, 0),
+                Language::Rust,
+                Visibility::Private,
+            )
+            .with_attributes(vec!["property".to_string()]),
+        );
+
+        let detector = EntryPointDetector::new(&graph);
+        let entries = detector.detect_production_entry_points();
+        assert!(
+            entries.is_empty(),
+            "Rust function with 'property' attr should NOT be a Python decorator entry point"
         );
     }
 
