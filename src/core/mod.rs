@@ -13,7 +13,6 @@
 pub mod error;
 pub mod scoring;
 pub mod text_utils;
-pub mod timer;
 pub mod traits;
 pub mod types;
 
@@ -23,7 +22,6 @@ pub use scoring::{
     PatternSignals, PriorityScore, StructuralSignals,
 };
 pub use text_utils::LineOffsetTable;
-pub use timer::{Timer, trace_msg};
 pub use traits::{
     CompiledPattern, LanguageParser, ParseTree, PatternMatch, PatternMatcher, ProgressReporter,
     Reporter, TreeNode,
