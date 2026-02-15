@@ -330,6 +330,13 @@ enum Commands {
         #[arg(long)]
         check: bool,
     },
+
+    /// Show weekly AI slop rankings
+    Weekly {
+        /// Show detailed breakdown per project
+        #[arg(long)]
+        detailed: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -447,6 +454,8 @@ pub fn run() {
         },
 
         Commands::Update { check } => commands::update::run(check),
+
+        Commands::Weekly { detailed } => commands::weekly::run(detailed),
     };
 
     match result {

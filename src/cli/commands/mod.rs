@@ -4,6 +4,8 @@ pub mod dead_code;
 pub mod rules;
 pub mod scan;
 pub mod update;
+pub mod weekly;
+pub mod weekly_cache;
 
 use crate::core::{Finding, Severity, SourceLocation};
 use crate::output::{create_formatter, OutputFormat};

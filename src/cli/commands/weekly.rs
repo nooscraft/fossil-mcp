@@ -1,4 +1,4 @@
-use crate::cli::{use_colors, C};
+use crate::cli::C;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -52,18 +52,13 @@ pub fn run(detailed: bool) -> Result<String, crate::core::Error> {
     let c = C::new();
     let mut output = String::new();
 
-    // Fetch JSON from https://fossil-mcp.com/data/weekly_slop.json
-    let response = ureq::get("https://fossil-mcp.com/data/weekly_slop.json")
-        .timeout(std::time::Duration::from_secs(10))
-        .call()
-        .map_err(|e| {
-            crate::core::Error::config(format!(
-                "Failed to fetch weekly data: {}. Check your internet connection.",
-                e
-            ))
-        })?;
+    let json_str = super::weekly_cache::load_weekly_json().ok_or_else(|| {
+        crate::core::Error::config(
+            "Failed to fetch weekly data. Check your internet connection.".to_string(),
+        )
+    })?;
 
-    let data: WeeklyData = response.into_json().map_err(|e| {
+    let data: WeeklyData = serde_json::from_str(&json_str).map_err(|e| {
         crate::core::Error::config(format!("Failed to parse weekly data: {}", e))
     })?;
 

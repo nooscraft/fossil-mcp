@@ -9,6 +9,7 @@ fn main() {
         "clones",
         "rules",
         "update",
+        "weekly",
         "mcp",
         "--help",
         "-h",
@@ -27,6 +28,7 @@ fn main() {
         });
     if !skip_update_check && std::env::var("FOSSIL_NO_UPDATE_CHECK").is_err() {
         std::thread::spawn(fossil_mcp::update::check_for_update_background);
+        std::thread::spawn(fossil_mcp::cli::commands::weekly_cache::prefetch_weekly_data);
     }
 
     if args.len() > 1 && cli_subcommands.contains(&args[1].as_str()) {

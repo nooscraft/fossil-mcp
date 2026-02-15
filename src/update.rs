@@ -16,7 +16,7 @@ fn cache_path() -> Option<PathBuf> {
 }
 
 /// Returns ~/.fossil-mcp/ , creating it if needed.
-fn fossil_config_dir() -> Option<PathBuf> {
+pub(crate) fn fossil_config_dir() -> Option<PathBuf> {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .ok()?;
