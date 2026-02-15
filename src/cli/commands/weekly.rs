@@ -58,9 +58,8 @@ pub fn run(detailed: bool) -> Result<String, crate::core::Error> {
         )
     })?;
 
-    let data: WeeklyData = serde_json::from_str(&json_str).map_err(|e| {
-        crate::core::Error::config(format!("Failed to parse weekly data: {}", e))
-    })?;
+    let data: WeeklyData = serde_json::from_str(&json_str)
+        .map_err(|e| crate::core::Error::config(format!("Failed to parse weekly data: {}", e)))?;
 
     // Build header
     output.push('\n');
@@ -70,15 +69,8 @@ pub fn run(detailed: bool) -> Result<String, crate::core::Error> {
         c.cyan(&data.week)
     ));
     let header_line = "═".repeat(70);
-    output.push_str(&format!(
-        "  {}\n",
-        c.dim(&header_line)
-    ));
-    output.push_str(&format!(
-        "  {}: {}\n\n",
-        c.dim("Theme"),
-        &data.theme
-    ));
+    output.push_str(&format!("  {}\n", c.dim(&header_line)));
+    output.push_str(&format!("  {}: {}\n\n", c.dim("Theme"), &data.theme));
 
     output.push_str(&format!(
         "  {}\n\n",
@@ -134,35 +126,36 @@ pub fn run(detailed: bool) -> Result<String, crate::core::Error> {
             current_line.push_str(word);
         }
         if !current_line.is_empty() {
-            output.push_str(&format!("      {} {}\n\n", c.dim("→"), c.dim(&current_line)));
+            output.push_str(&format!(
+                "      {} {}\n\n",
+                c.dim("→"),
+                c.dim(&current_line)
+            ));
         }
 
         if detailed {
             output.push_str(&format!(
                 "      {}  Dead Code: {} functions (call_graph_reachability, high confidence)\n",
-                c.dim("├─"), project.metrics.dead_code.count
+                c.dim("├─"),
+                project.metrics.dead_code.count
             ));
             output.push_str(&format!(
                 "      {}  Clones: {} instances (MinHash + LSH, high confidence)\n",
-                c.dim("├─"), project.metrics.clones.count
+                c.dim("├─"),
+                project.metrics.clones.count
             ));
             output.push_str(&format!(
                 "      {}  Scaffolding: {} markers (pattern-based, very_high confidence)\n\n",
-                c.dim("└─"), project.metrics.scaffolding.total
+                c.dim("└─"),
+                project.metrics.scaffolding.total
             ));
         }
     }
 
     // Key insights section
-    output.push_str(&format!(
-        "  {}\n",
-        c.bold("KEY INSIGHTS")
-    ));
+    output.push_str(&format!("  {}\n", c.bold("KEY INSIGHTS")));
     let insights_line = "─".repeat(70);
-    output.push_str(&format!(
-        "  {}\n",
-        c.dim(&insights_line)
-    ));
+    output.push_str(&format!("  {}\n", c.dim(&insights_line)));
 
     for (i, insight) in data.key_insights.iter().enumerate() {
         output.push_str(&format!("  {} {}\n", c.green("•"), c.bold(&insight.title)));
