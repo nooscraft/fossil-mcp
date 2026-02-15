@@ -37,9 +37,12 @@ impl CodeGraphStats {
         use xxhash_rust::xxh3::xxh3_64;
 
         // UltraLogLog with 12 bits (±2% error rate)
-        let mut ull_functions = UltraLogLog::new(12).unwrap_or_else(|_| UltraLogLog::new(10).unwrap());
-        let mut ull_callers = UltraLogLog::new(12).unwrap_or_else(|_| UltraLogLog::new(10).unwrap());
-        let mut ull_callees = UltraLogLog::new(12).unwrap_or_else(|_| UltraLogLog::new(10).unwrap());
+        let mut ull_functions =
+            UltraLogLog::new(12).unwrap_or_else(|_| UltraLogLog::new(10).unwrap());
+        let mut ull_callers =
+            UltraLogLog::new(12).unwrap_or_else(|_| UltraLogLog::new(10).unwrap());
+        let mut ull_callees =
+            UltraLogLog::new(12).unwrap_or_else(|_| UltraLogLog::new(10).unwrap());
         let mut ull_edges = UltraLogLog::new(12).unwrap_or_else(|_| UltraLogLog::new(10).unwrap());
 
         let mut file_paths = HashMap::new();

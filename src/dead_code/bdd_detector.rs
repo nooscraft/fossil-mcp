@@ -184,15 +184,12 @@ impl BddContextDetector {
     /// Check if function is exported for external use
     fn is_public_export(node: &CodeNode) -> bool {
         node.name.starts_with("export")
-            || node
-                .attributes
-                .iter()
-                .any(|attr| {
-                    attr.contains("export")
-                        || attr.contains("public")
-                        || attr.contains("@api")
-                        || attr.contains("@public")
-                })
+            || node.attributes.iter().any(|attr| {
+                attr.contains("export")
+                    || attr.contains("public")
+                    || attr.contains("@api")
+                    || attr.contains("@public")
+            })
     }
 
     /// Check if function is registered in a plugin/registry system
@@ -256,9 +253,7 @@ fn callback_patterns() -> &'static Regex {
 
 fn callback_attr_patterns() -> &'static Regex {
     static INSTANCE: OnceLock<Regex> = OnceLock::new();
-    INSTANCE.get_or_init(|| {
-        Regex::new(r"(?i)(callback|handler|listener|async|promise)").unwrap()
-    })
+    INSTANCE.get_or_init(|| Regex::new(r"(?i)(callback|handler|listener|async|promise)").unwrap())
 }
 
 fn middleware_patterns() -> &'static Regex {
@@ -316,9 +311,7 @@ fn lifecycle_attr_patterns() -> &'static Regex {
 
 fn event_attr_patterns() -> &'static Regex {
     static INSTANCE: OnceLock<Regex> = OnceLock::new();
-    INSTANCE.get_or_init(|| {
-        Regex::new(r"(?i)(@event|@listener|@subscribe|@on|@emit)").unwrap()
-    })
+    INSTANCE.get_or_init(|| Regex::new(r"(?i)(@event|@listener|@subscribe|@on|@emit)").unwrap())
 }
 
 fn plugin_patterns() -> &'static Regex {
@@ -468,7 +461,14 @@ mod tests {
 
     #[test]
     fn test_lowercase_event_handler_detection() {
-        for name in &["onopen", "onmessage", "onerror", "onclose", "onload", "onprogress"] {
+        for name in &[
+            "onopen",
+            "onmessage",
+            "onerror",
+            "onclose",
+            "onload",
+            "onprogress",
+        ] {
             let node = make_node(name, vec![]);
             assert!(
                 BddContextDetector::is_event_handler(&node),
@@ -480,7 +480,14 @@ mod tests {
 
     #[test]
     fn test_config_driven_detection() {
-        for name in &["migrate", "serialize", "deserialize", "partialize", "onRehydrateStorage", "reducer"] {
+        for name in &[
+            "migrate",
+            "serialize",
+            "deserialize",
+            "partialize",
+            "onRehydrateStorage",
+            "reducer",
+        ] {
             let node = make_node(name, vec![]);
             assert!(
                 BddContextDetector::is_config_driven(&node),

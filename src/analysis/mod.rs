@@ -19,11 +19,11 @@ pub mod stats;
 
 pub use aggregator::Aggregator;
 pub use cache::{AnalysisCache, TwoLevelCache};
-pub use diff_analyzer::{DiffInfo, DependentAnalyzer};
+pub use diff_analyzer::{DependentAnalyzer, DiffInfo};
 pub use hot_functions::HotFunctionTracker;
 pub use incremental::IncrementalAnalyzer;
 pub use persistent_cache::PersistentCache;
-pub use pipeline::{Pipeline, PipelineResult, get_rss_mb};
+pub use pipeline::{get_rss_mb, Pipeline, PipelineResult};
 pub use scanner::FileScanner;
 pub use sieve_cache::SieveCache;
 pub use stats::CodeGraphStats;

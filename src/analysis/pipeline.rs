@@ -13,9 +13,9 @@ use crate::parsers::ParserRegistry;
 use rayon::prelude::*;
 use tracing::{info, warn};
 
-use super::scanner::{FileScanner, SourceFile};
 use super::diff_analyzer::DiffInfo;
-use crate::config::cache::{CacheStore, CacheConfig};
+use super::scanner::{FileScanner, SourceFile};
+use crate::config::cache::{CacheConfig, CacheStore};
 
 /// Configuration for the analysis pipeline.
 #[derive(Debug, Clone)]
@@ -249,7 +249,6 @@ impl Pipeline {
             // batch_parsed and batch_graph are dropped here, freeing memory
         }
 
-
         // Note: Unlike the non-streaming version, we're building the graph incrementally
         // and don't store all parsed_files in the result. This saves ~40GB on large projects.
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -301,8 +300,8 @@ impl Pipeline {
         }
 
         let diff_str = String::from_utf8_lossy(&diff_output.stdout);
-        let diff_info = DiffInfo::from_git_diff(&diff_str)
-            .map_err(|e| crate::core::Error::analysis(e))?;
+        let diff_info =
+            DiffInfo::from_git_diff(&diff_str).map_err(|e| crate::core::Error::analysis(e))?;
 
         let changed_files = diff_info.changed_file_strings();
         info!("Detected {} changed file(s)", changed_files.len());
@@ -367,7 +366,10 @@ impl Pipeline {
                 })
                 .collect()
         } else {
-            files_to_parse.iter().map(|f| parse_file(f, &registry)).collect()
+            files_to_parse
+                .iter()
+                .map(|f| parse_file(f, &registry))
+                .collect()
         };
 
         let mut parsed_files = Vec::new();
@@ -388,7 +390,11 @@ impl Pipeline {
         }
 
         let files_parsed = parsed_files.len();
-        info!("Parsed {} changed files ({} errors)", files_parsed, errors.len());
+        info!(
+            "Parsed {} changed files ({} errors)",
+            files_parsed,
+            errors.len()
+        );
 
         // Build graph from changed files
         let builder = GraphBuilder::new()?;

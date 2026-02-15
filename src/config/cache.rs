@@ -92,8 +92,9 @@ impl CacheStore {
             PathBuf::from(dir)
         } else {
             // Default to ~/.fossil-cache
-            let home = dirs::home_dir()
-                .ok_or_else(|| crate::core::Error::config("Cannot find home directory".to_string()))?;
+            let home = dirs::home_dir().ok_or_else(|| {
+                crate::core::Error::config("Cannot find home directory".to_string())
+            })?;
             home.join(".fossil-cache")
         };
 
@@ -110,16 +111,23 @@ impl CacheStore {
 
     /// Get cache key for a file.
     pub fn cache_key(file_hash: &str, language: &str, config_hash: &str) -> String {
-        format!("{}_{}_{}",file_hash, language, config_hash)
+        format!("{}_{}_{}", file_hash, language, config_hash)
     }
 
     /// Store file analysis in cache.
-    pub fn store_file_analysis(&self, analysis: &CachedFileAnalysis) -> Result<(), crate::core::Error> {
+    pub fn store_file_analysis(
+        &self,
+        analysis: &CachedFileAnalysis,
+    ) -> Result<(), crate::core::Error> {
         if !self.enabled {
             return Ok(());
         }
 
-        let key = Self::cache_key(&analysis.file_hash, &analysis.language, &analysis.config_hash);
+        let key = Self::cache_key(
+            &analysis.file_hash,
+            &analysis.language,
+            &analysis.config_hash,
+        );
         let cache_file = self.cache_dir.join(format!("{}.json", key));
 
         let json = serde_json::to_string(analysis)
@@ -210,8 +218,9 @@ impl CacheStore {
         if self.enabled && self.cache_dir.exists() {
             fs::remove_dir_all(&self.cache_dir)
                 .map_err(|e| crate::core::Error::config(format!("Cannot clear cache: {e}")))?;
-            fs::create_dir_all(&self.cache_dir)
-                .map_err(|e| crate::core::Error::config(format!("Cannot recreate cache dir: {e}")))?;
+            fs::create_dir_all(&self.cache_dir).map_err(|e| {
+                crate::core::Error::config(format!("Cannot recreate cache dir: {e}"))
+            })?;
         }
         Ok(())
     }

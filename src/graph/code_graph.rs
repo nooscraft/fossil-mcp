@@ -4,9 +4,9 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::core::{CallEdge, CodeNode, EdgeConfidence, Language, NodeId};
-use sketch_oxide::membership::BloomFilter;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::Direction;
+use sketch_oxide::membership::BloomFilter;
 
 /// A directed graph of code nodes connected by call edges.
 ///

@@ -188,7 +188,8 @@ impl GraphBuilder {
 
         // === Call clustering - resolve identical (source_module, callee_name) calls once ===
         // Cache for resolved clusters: (source_module, callee_name) -> resolved_target_id
-        let mut resolution_cache: HashMap<(Option<String>, String), Option<NodeId>> = HashMap::new();
+        let mut resolution_cache: HashMap<(Option<String>, String), Option<NodeId>> =
+            HashMap::new();
 
         // === Build priority worklist for high-confidence calls ===
         // Collect all unresolved calls with caller file context
@@ -208,7 +209,8 @@ impl GraphBuilder {
         // Collect all unresolved calls with their caller files for priority-based worklist
         // Use reachability info for smart prioritization
         // We resolve ALL calls, but prioritize calls from reachable functions first
-        let mut all_unresolved_calls: Vec<(&crate::core::UnresolvedCall, String, Language)> = Vec::new();
+        let mut all_unresolved_calls: Vec<(&crate::core::UnresolvedCall, String, Language)> =
+            Vec::new();
         for pf in parsed_files {
             for unresolved in &pf.unresolved_calls {
                 all_unresolved_calls.push((unresolved, pf.path.clone(), pf.language));
@@ -223,7 +225,9 @@ impl GraphBuilder {
             .enumerate()
             .map(|(i, (call, _, _))| {
                 let caller_idx = project_graph.get_index(call.caller_id);
-                let is_caller_reachable = caller_idx.map(|idx| all_reachable.contains(&idx)).unwrap_or(false);
+                let is_caller_reachable = caller_idx
+                    .map(|idx| all_reachable.contains(&idx))
+                    .unwrap_or(false);
                 let priority = compute_call_priority(call, is_caller_reachable);
                 // Use Reverse for max-heap behavior (higher priority popped first)
                 (std::cmp::Reverse(priority), i)
@@ -235,34 +239,49 @@ impl GraphBuilder {
         let mut _clustered_resolutions = 0;
         while let Some((_, call_index)) = worklist.pop() {
             let (unresolved, caller_file, caller_lang) = &all_unresolved_calls[call_index];
-                // Try the imported_as name first, then fall back to callee_name
-                let callee_name = unresolved
-                    .imported_as
-                    .as_deref()
-                    .unwrap_or(&unresolved.callee_name);
+            // Try the imported_as name first, then fall back to callee_name
+            let callee_name = unresolved
+                .imported_as
+                .as_deref()
+                .unwrap_or(&unresolved.callee_name);
 
-                // Check if this (source_module, callee_name) cluster has already been resolved
-                let cluster_key = (unresolved.source_module.clone(), callee_name.to_string());
-                if let Some(cached_result) = resolution_cache.get(&cluster_key) {
-                    // Reuse cached resolution without repeating the work
-                    if let Some(resolved_id) = cached_result {
+            // Check if this (source_module, callee_name) cluster has already been resolved
+            let cluster_key = (unresolved.source_module.clone(), callee_name.to_string());
+            if let Some(cached_result) = resolution_cache.get(&cluster_key) {
+                // Reuse cached resolution without repeating the work
+                if let Some(resolved_id) = cached_result {
+                    cross_file_edges.push(CallEdge::new(
+                        unresolved.caller_id,
+                        resolved_id.clone(),
+                        EdgeConfidence::HighLikely,
+                    ));
+                    _clustered_resolutions += 1;
+                }
+                continue; // Skip detailed resolution for this call
+            }
+
+            // Try file-scoped resolution first (higher confidence)
+            let mut resolved = false;
+            let mut resolved_id: Option<NodeId> = None;
+            if let Some(source_module) = &unresolved.source_module {
+                let candidates = resolver.resolve(source_module, caller_file, *caller_lang);
+                if let Some(callee_idx) =
+                    project_graph.find_node_by_name_in_files(callee_name, &candidates)
+                {
+                    if let Some(to_id) = project_graph.get_node(callee_idx).map(|n| n.id) {
                         cross_file_edges.push(CallEdge::new(
                             unresolved.caller_id,
-                            resolved_id.clone(),
+                            to_id.clone(),
                             EdgeConfidence::HighLikely,
                         ));
-                        _clustered_resolutions += 1;
+                        resolved = true;
+                        resolved_id = Some(to_id);
                     }
-                    continue; // Skip detailed resolution for this call
                 }
-
-                // Try file-scoped resolution first (higher confidence)
-                let mut resolved = false;
-                let mut resolved_id: Option<NodeId> = None;
-                if let Some(source_module) = &unresolved.source_module {
-                    let candidates = resolver.resolve(source_module, caller_file, *caller_lang);
-                    if let Some(callee_idx) =
-                        project_graph.find_node_by_name_in_files(callee_name, &candidates)
+                // Also try original callee_name in scoped files
+                if !resolved && unresolved.imported_as.is_some() {
+                    if let Some(callee_idx) = project_graph
+                        .find_node_by_name_in_files(&unresolved.callee_name, &candidates)
                     {
                         if let Some(to_id) = project_graph.get_node(callee_idx).map(|n| n.id) {
                             cross_file_edges.push(CallEdge::new(
@@ -274,148 +293,136 @@ impl GraphBuilder {
                             resolved_id = Some(to_id);
                         }
                     }
-                    // Also try original callee_name in scoped files
-                    if !resolved && unresolved.imported_as.is_some() {
-                        if let Some(callee_idx) = project_graph
-                            .find_node_by_name_in_files(&unresolved.callee_name, &candidates)
-                        {
-                            if let Some(to_id) = project_graph.get_node(callee_idx).map(|n| n.id) {
-                                cross_file_edges.push(CallEdge::new(
-                                    unresolved.caller_id,
-                                    to_id.clone(),
-                                    EdgeConfidence::HighLikely,
-                                ));
-                                resolved = true;
-                                resolved_id = Some(to_id);
-                            }
+                }
+
+                // If file-scoped lookup failed and candidate is a barrel file,
+                // follow re-export chain: use cached re-exports to find real source.
+                if !resolved {
+                    let barrel_candidates =
+                        resolver.resolve(source_module, caller_file, *caller_lang);
+                    for candidate_file in &barrel_candidates {
+                        if !barrel_suffixes.iter().any(|s| candidate_file.ends_with(s)) {
+                            continue;
                         }
-                    }
+                        // === QUICK WIN: Use HashMap instead of iter().find() ===
+                        // Try exact match first (O(1)), then fuzzy match fallback (O(barrels))
+                        let mut barrel_pf: Option<&&ParsedFile> =
+                            barrel_pf_index.get(candidate_file);
 
-                    // If file-scoped lookup failed and candidate is a barrel file,
-                    // follow re-export chain: use cached re-exports to find real source.
-                    if !resolved {
-                        let barrel_candidates =
-                            resolver.resolve(source_module, caller_file, *caller_lang);
-                        for candidate_file in &barrel_candidates {
-                            if !barrel_suffixes.iter().any(|s| candidate_file.ends_with(s)) {
-                                continue;
-                            }
-                            // === QUICK WIN: Use HashMap instead of iter().find() ===
-                            // Try exact match first (O(1)), then fuzzy match fallback (O(barrels))
-                            let mut barrel_pf: Option<&&ParsedFile> = barrel_pf_index.get(candidate_file);
+                        // Fallback to fuzzy matching if exact match failed
+                        if barrel_pf.is_none() {
+                            barrel_pf = barrel_pf_index
+                                .iter()
+                                .find(|(path, _)| {
+                                    path.ends_with(candidate_file.as_str())
+                                        || candidate_file.ends_with(path.as_str())
+                                })
+                                .map(|(_, pf)| pf);
+                        }
 
-                            // Fallback to fuzzy matching if exact match failed
-                            if barrel_pf.is_none() {
-                                barrel_pf = barrel_pf_index.iter().find(|(path, _)| {
-                                    path.ends_with(candidate_file.as_str()) || candidate_file.ends_with(path.as_str())
-                                }).map(|(_, pf)| pf);
-                            }
+                        if let Some(&barrel_pf) = barrel_pf {
+                            // Use cached re-exports instead of re-parsing
+                            let reexports = barrel_cache
+                                .get(&barrel_pf.path)
+                                .cloned()
+                                .unwrap_or_default();
+                            for reexport in reexports {
+                                let reexport_candidates = resolver.resolve(
+                                    &reexport.source_path,
+                                    &barrel_pf.path,
+                                    barrel_pf.language,
+                                );
 
-                            if let Some(&barrel_pf) = barrel_pf {
-                                // Use cached re-exports instead of re-parsing
-                                let reexports = barrel_cache
-                                    .get(&barrel_pf.path)
-                                    .cloned()
-                                    .unwrap_or_default();
-                                for reexport in reexports {
-                                    let reexport_candidates = resolver.resolve(
-                                        &reexport.source_path,
-                                        &barrel_pf.path,
-                                        barrel_pf.language,
-                                    );
-
-                                    if reexport.exported_name == callee_name {
-                                        // Exact named re-export: export { X } from './path'
-                                        if let Some(idx) = project_graph.find_node_by_name_in_files(
-                                            &reexport.original_name,
-                                            &reexport_candidates,
-                                        ) {
-                                            if let Some(to_id) =
-                                                project_graph.get_node(idx).map(|n| n.id)
-                                            {
-                                                cross_file_edges.push(CallEdge::new(
-                                                    unresolved.caller_id,
-                                                    to_id.clone(),
-                                                    EdgeConfidence::HighLikely,
-                                                ));
-                                                resolved = true;
-                                                resolved_id = Some(to_id);
-                                            }
-                                        }
-                                    } else if reexport.exported_name == "*" {
-                                        // Wildcard re-export: export * from './path'
-                                        // Look for the callee in the re-exported source files
-                                        if let Some(idx) = project_graph.find_node_by_name_in_files(
-                                            callee_name,
-                                            &reexport_candidates,
-                                        ) {
-                                            if let Some(to_id) =
-                                                project_graph.get_node(idx).map(|n| n.id)
-                                            {
-                                                cross_file_edges.push(CallEdge::new(
-                                                    unresolved.caller_id,
-                                                    to_id.clone(),
-                                                    EdgeConfidence::HighLikely,
-                                                ));
-                                                resolved = true;
-                                                resolved_id = Some(to_id);
-                                            }
-                                        }
-                                        // Also try original callee_name if it was renamed via import
-                                        if !resolved && unresolved.imported_as.is_some() {
-                                            if let Some(idx) = project_graph
-                                                .find_node_by_name_in_files(
-                                                    &unresolved.callee_name,
-                                                    &reexport_candidates,
-                                                )
-                                            {
-                                                if let Some(to_id) =
-                                                    project_graph.get_node(idx).map(|n| n.id)
-                                                {
-                                                    cross_file_edges.push(CallEdge::new(
-                                                        unresolved.caller_id,
-                                                        to_id.clone(),
-                                                        EdgeConfidence::HighLikely,
-                                                    ));
-                                                    resolved = true;
-                                                    resolved_id = Some(to_id);
-                                                }
-                                            }
+                                if reexport.exported_name == callee_name {
+                                    // Exact named re-export: export { X } from './path'
+                                    if let Some(idx) = project_graph.find_node_by_name_in_files(
+                                        &reexport.original_name,
+                                        &reexport_candidates,
+                                    ) {
+                                        if let Some(to_id) =
+                                            project_graph.get_node(idx).map(|n| n.id)
+                                        {
+                                            cross_file_edges.push(CallEdge::new(
+                                                unresolved.caller_id,
+                                                to_id.clone(),
+                                                EdgeConfidence::HighLikely,
+                                            ));
+                                            resolved = true;
+                                            resolved_id = Some(to_id);
                                         }
                                     }
-                                    if resolved {
-                                        break;
+                                } else if reexport.exported_name == "*" {
+                                    // Wildcard re-export: export * from './path'
+                                    // Look for the callee in the re-exported source files
+                                    if let Some(idx) = project_graph.find_node_by_name_in_files(
+                                        callee_name,
+                                        &reexport_candidates,
+                                    ) {
+                                        if let Some(to_id) =
+                                            project_graph.get_node(idx).map(|n| n.id)
+                                        {
+                                            cross_file_edges.push(CallEdge::new(
+                                                unresolved.caller_id,
+                                                to_id.clone(),
+                                                EdgeConfidence::HighLikely,
+                                            ));
+                                            resolved = true;
+                                            resolved_id = Some(to_id);
+                                        }
+                                    }
+                                    // Also try original callee_name if it was renamed via import
+                                    if !resolved && unresolved.imported_as.is_some() {
+                                        if let Some(idx) = project_graph.find_node_by_name_in_files(
+                                            &unresolved.callee_name,
+                                            &reexport_candidates,
+                                        ) {
+                                            if let Some(to_id) =
+                                                project_graph.get_node(idx).map(|n| n.id)
+                                            {
+                                                cross_file_edges.push(CallEdge::new(
+                                                    unresolved.caller_id,
+                                                    to_id.clone(),
+                                                    EdgeConfidence::HighLikely,
+                                                ));
+                                                resolved = true;
+                                                resolved_id = Some(to_id);
+                                            }
+                                        }
                                     }
                                 }
+                                if resolved {
+                                    break;
+                                }
                             }
-                            if resolved {
-                                break;
-                            }
+                        }
+                        if resolved {
+                            break;
                         }
                     }
                 }
+            }
 
-                // Fall back to proximity-based global lookup (language-scoped)
-                if !resolved {
-                    resolved = Self::resolve_global_with_proximity(
-                        callee_name,
+            // Fall back to proximity-based global lookup (language-scoped)
+            if !resolved {
+                resolved = Self::resolve_global_with_proximity(
+                    callee_name,
+                    caller_file.as_str(),
+                    *caller_lang,
+                    &unresolved.caller_id,
+                    &project_graph,
+                    &mut cross_file_edges,
+                );
+                if !resolved && unresolved.imported_as.is_some() {
+                    Self::resolve_global_with_proximity(
+                        &unresolved.callee_name,
                         caller_file.as_str(),
                         *caller_lang,
                         &unresolved.caller_id,
                         &project_graph,
                         &mut cross_file_edges,
                     );
-                    if !resolved && unresolved.imported_as.is_some() {
-                        Self::resolve_global_with_proximity(
-                            &unresolved.callee_name,
-                            caller_file.as_str(),
-                            *caller_lang,
-                            &unresolved.caller_id,
-                            &project_graph,
-                            &mut cross_file_edges,
-                        );
-                    }
                 }
+            }
 
             // Update cache with resolved target for this (source_module, callee_name) cluster
             // Only cache file-scoped resolutions (those with source_module)
@@ -840,7 +847,6 @@ fn extract_python_reexports(trimmed: &str) -> Option<Vec<BarrelReexport>> {
     }
     Some(results)
 }
-
 
 #[cfg(test)]
 mod tests {

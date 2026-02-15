@@ -1509,18 +1509,10 @@ fn collect_class_hierarchy(
                         if let Some(colon_pos) = node_text.find(':') {
                             let after_colon = &node_text[colon_pos + 1..];
                             // Take everything before the first '{' (body start)
-                            let before_brace = after_colon
-                                .split('{')
-                                .next()
-                                .unwrap_or(after_colon)
-                                .trim();
+                            let before_brace =
+                                after_colon.split('{').next().unwrap_or(after_colon).trim();
                             for parent in before_brace.split(',') {
-                                let name = parent
-                                    .trim()
-                                    .split('<')
-                                    .next()
-                                    .unwrap_or("")
-                                    .trim();
+                                let name = parent.trim().split('<').next().unwrap_or("").trim();
                                 if !name.is_empty() {
                                     parents.push(name.to_string());
                                 }

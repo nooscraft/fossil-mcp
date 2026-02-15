@@ -2,10 +2,10 @@
 
 use std::path::Path;
 
+use crate::analysis::{CodeGraphStats, Pipeline};
+use crate::config::cache::{CacheConfig, CacheStore};
 use crate::core::Language;
 use crate::dead_code::detector::{Detector, DetectorConfig};
-use crate::analysis::{CodeGraphStats, Pipeline};
-use crate::config::cache::{CacheStore, CacheConfig};
 
 use super::{dead_code_to_findings, format_findings, parse_confidence};
 
@@ -75,7 +75,8 @@ pub fn run(
     };
 
     // Run detection on the built graph
-    let result = detector.detect_with_parsed_files(&pipeline_result.graph, &pipeline_result.parsed_files)?;
+    let result =
+        detector.detect_with_parsed_files(&pipeline_result.graph, &pipeline_result.parsed_files)?;
 
     // Display cache statistics if requested
     if cache_stats {

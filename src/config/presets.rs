@@ -534,12 +534,7 @@ static PRESETS: &[Preset] = &[
         detect_deps: &["redux", "@reduxjs/toolkit", "react-redux"],
         entry_attributes: &[],
         entry_functions: &[],
-        lifecycle_methods: &[
-            "reducer",
-            "extraReducers",
-            "prepare",
-            "middleware",
-        ],
+        lifecycle_methods: &["reducer", "extraReducers", "prepare", "middleware"],
     },
     // Python FFI bindings framework
     Preset {

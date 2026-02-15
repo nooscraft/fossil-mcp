@@ -33,12 +33,12 @@ pub use centrality::{
 pub use cfg::{BasicBlock, CfgEdgeKind, CfgNodeId, ControlFlowGraph};
 pub use class_hierarchy::ClassHierarchy;
 pub use code_graph::CodeGraph;
-pub use csr_format::CsrGraph;
 pub use constant_prop::{
     analyze_constants, analyze_constants_with_expressions, analyze_constants_with_values,
     evaluate_expression, ConstEnv, ConstPropResult, ConstValue, ConstantAssignment, DeadBranch,
     ExprConstantAssignment,
 };
+pub use csr_format::CsrGraph;
 pub use dataflow::{
     BlockDataFlow, DataFlowGraph, DefPoint, DefUseChain, LivenessResult, ReachingDefinitions,
     UsePoint, VarRef,

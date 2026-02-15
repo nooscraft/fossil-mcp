@@ -12,7 +12,7 @@ use regex::Regex;
 pub struct EntryPointDetector<'a> {
     graph: &'a CodeGraph,
     rules: crate::config::ResolvedEntryPointRules,
-    serde_targets: HashSet<String>,  // Pre-built set of function names referenced by serde attrs
+    serde_targets: HashSet<String>, // Pre-built set of function names referenced by serde attrs
 }
 
 impl<'a> EntryPointDetector<'a> {
@@ -29,7 +29,11 @@ impl<'a> EntryPointDetector<'a> {
     /// Create a detector with custom entry point rules.
     pub fn with_rules(graph: &'a CodeGraph, rules: crate::config::ResolvedEntryPointRules) -> Self {
         let serde_targets = Self::build_serde_target_index(graph);
-        Self { graph, rules, serde_targets }
+        Self {
+            graph,
+            rules,
+            serde_targets,
+        }
     }
 
     /// Build a set of function names referenced by serde attributes (O(n) preprocessing).
@@ -166,7 +170,12 @@ impl<'a> EntryPointDetector<'a> {
             && node.attributes.iter().any(|attr| {
                 matches!(
                     attr.as_str(),
-                    "objc" | "IBAction" | "IBOutlet" | "IBDesignable" | "IBInspectable" | "NSManaged"
+                    "objc"
+                        | "IBAction"
+                        | "IBOutlet"
+                        | "IBDesignable"
+                        | "IBInspectable"
+                        | "NSManaged"
                 )
             })
         {
@@ -227,7 +236,10 @@ impl<'a> EntryPointDetector<'a> {
             && node.name.len() > 4
             && matches!(
                 node.kind,
-                NodeKind::Function | NodeKind::Method | NodeKind::AsyncFunction | NodeKind::AsyncMethod
+                NodeKind::Function
+                    | NodeKind::Method
+                    | NodeKind::AsyncFunction
+                    | NodeKind::AsyncMethod
             )
     }
 
@@ -252,8 +264,15 @@ impl<'a> EntryPointDetector<'a> {
             .unwrap_or("");
         let is_convention_file = matches!(
             stem,
-            "page" | "layout" | "error" | "loading" | "not-found"
-                | "template" | "default" | "route" | "middleware"
+            "page"
+                | "layout"
+                | "error"
+                | "loading"
+                | "not-found"
+                | "template"
+                | "default"
+                | "route"
+                | "middleware"
         );
         is_convention_file && node.visibility == Visibility::Public
     }
@@ -708,8 +727,12 @@ fn collect_exports_paths(value: &serde_json::Value, paths: &mut Vec<String>) {
             for (key, val) in map {
                 // Keys like ".", "./utils", "import", "require", "default", "types", "node"
                 // are all valid — recurse into the value
-                if key == "default" || key == "import" || key == "require"
-                    || key == "types" || key == "node" || key == "browser"
+                if key == "default"
+                    || key == "import"
+                    || key == "require"
+                    || key == "types"
+                    || key == "node"
+                    || key == "browser"
                     || key.starts_with('.')
                 {
                     collect_exports_paths(val, paths);
@@ -1282,7 +1305,14 @@ mod tests {
 
     #[test]
     fn test_python_dunder_is_entry_point() {
-        for name in &["__call__", "__repr__", "__getattr__", "__init__", "__enter__", "__exit__"] {
+        for name in &[
+            "__call__",
+            "__repr__",
+            "__getattr__",
+            "__init__",
+            "__enter__",
+            "__exit__",
+        ] {
             let mut graph = CodeGraph::new();
             graph.add_node(make_node(name, NodeKind::Function, Visibility::Public));
 
@@ -1441,7 +1471,14 @@ mod tests {
 
     #[test]
     fn test_swift_objc_is_framework_entry() {
-        for attr in &["objc", "IBAction", "IBOutlet", "IBDesignable", "IBInspectable", "NSManaged"] {
+        for attr in &[
+            "objc",
+            "IBAction",
+            "IBOutlet",
+            "IBDesignable",
+            "IBInspectable",
+            "NSManaged",
+        ] {
             let mut graph = CodeGraph::new();
             graph.add_node(make_swift_node_with_attrs(
                 "someMethod",

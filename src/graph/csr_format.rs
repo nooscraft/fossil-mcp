@@ -8,7 +8,7 @@
 //! Performance: O(log E) edge lookups vs O(1) DiGraph but with much better memory efficiency.
 
 #[allow(unused_imports)]
-use crate::core::{CallEdge, NodeId, EdgeConfidence};
+use crate::core::{CallEdge, EdgeConfidence, NodeId};
 use petgraph::graph::NodeIndex;
 
 /// Compressed Sparse Row representation of a call graph.
@@ -37,10 +37,7 @@ impl CsrGraph {
     /// # Arguments
     /// * `node_count` - Total number of nodes in the graph
     /// * `edges` - List of (from_index, to_index, CallEdge) tuples
-    pub fn from_edges(
-        node_count: usize,
-        mut edges: Vec<(NodeIndex, NodeIndex, CallEdge)>,
-    ) -> Self {
+    pub fn from_edges(node_count: usize, mut edges: Vec<(NodeIndex, NodeIndex, CallEdge)>) -> Self {
         // Initialize row offsets to zero
         let mut row_offsets = vec![0; node_count + 1];
 
@@ -101,7 +98,9 @@ impl CsrGraph {
         let start = self.row_offsets[node_id];
         let end = self.row_offsets[node_id + 1];
 
-        self.column_indices[start..end].binary_search(&to_idx).is_ok()
+        self.column_indices[start..end]
+            .binary_search(&to_idx)
+            .is_ok()
     }
 
     /// Get the edge from source to target, if it exists.
@@ -184,10 +183,7 @@ mod tests {
 
         let csr = CsrGraph::from_edges(
             5,
-            vec![
-                (from, to1, edge1.clone()),
-                (from, to2, edge2.clone()),
-            ],
+            vec![(from, to1, edge1.clone()), (from, to2, edge2.clone())],
         );
 
         assert_eq!(csr.edge_count(), 2);
@@ -233,6 +229,10 @@ mod tests {
         let memory = csr.memory_bytes();
 
         // Memory should be reasonable (< 100KB for 1000 edges)
-        assert!(memory < 100_000, "CSR memory usage too high: {} bytes", memory);
+        assert!(
+            memory < 100_000,
+            "CSR memory usage too high: {} bytes",
+            memory
+        );
     }
 }

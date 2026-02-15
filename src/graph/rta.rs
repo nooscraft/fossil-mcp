@@ -123,7 +123,7 @@ impl RapidTypeAnalysis {
         // This reduces iteration from O(reachable_methods) × (virtual calls) to O(new_methods) × (virtual calls).
         let mut methods_to_reprocess: Vec<NodeIndex> = worklist.drain(..).collect();
         let mut iteration = 0;
-        const MAX_ITERATIONS: usize = 100;  // Safety limit to prevent infinite loops
+        const MAX_ITERATIONS: usize = 100; // Safety limit to prevent infinite loops
 
         while !methods_to_reprocess.is_empty() && iteration < MAX_ITERATIONS {
             iteration += 1;

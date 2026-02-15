@@ -92,7 +92,8 @@ impl Detector {
         let pipeline = Pipeline::with_defaults();
         let pipeline_result = pipeline.run(root)?;
 
-        let result = self.detect_with_parsed_files(&pipeline_result.graph, &pipeline_result.parsed_files)?;
+        let result =
+            self.detect_with_parsed_files(&pipeline_result.graph, &pipeline_result.parsed_files)?;
         Ok(result)
     }
 
@@ -111,7 +112,6 @@ impl Detector {
         graph: &CodeGraph,
         parsed_files: &[ParsedFile],
     ) -> Result<DetectionResult, crate::core::Error> {
-
         // Detect entry points using config rules if provided
         let entry_detector = if let Some(ref rules) = self.config.entry_point_rules {
             EntryPointDetector::with_rules(graph, rules.clone())
@@ -132,7 +132,11 @@ impl Detector {
         }
 
         // Compute reachability
-        let _rta_mode = if self.config.use_rta { "with RTA" } else { "BFS" };
+        let _rta_mode = if self.config.use_rta {
+            "with RTA"
+        } else {
+            "BFS"
+        };
         let production_reachable = if self.config.use_rta {
             Self::compute_reachable_with_rta(graph, &production_entries)
         } else {
@@ -154,8 +158,7 @@ impl Detector {
         } else {
             Vec::new()
         };
-        if !dead_store_findings.is_empty() {
-        }
+        if !dead_store_findings.is_empty() {}
 
         // Detect feature-flag controlled dead code (always-dead blocks)
         let mut always_dead_ranges: Vec<(String, std::ops::Range<usize>)> = Vec::new();
@@ -175,9 +178,9 @@ impl Detector {
 
         // Filter findings: exclude those in always-dead feature flag blocks
         findings.retain(|f| {
-            !always_dead_ranges.iter().any(|(file, range)| {
-                file == &f.file && range.contains(&f.line_start)
-            })
+            !always_dead_ranges
+                .iter()
+                .any(|(file, range)| file == &f.file && range.contains(&f.line_start))
         });
 
         // Merge dead store findings into main findings
@@ -597,8 +600,8 @@ impl Detector {
                 .map(|positions| {
                     // Binary search for first position > start_byte
                     match positions.binary_search(&start_byte) {
-                        Ok(idx) => idx + 1 < positions.len(),  // Found exact match, check if later use exists
-                        Err(idx) => idx < positions.len(),      // Not found, idx is insertion point
+                        Ok(idx) => idx + 1 < positions.len(), // Found exact match, check if later use exists
+                        Err(idx) => idx < positions.len(),    // Not found, idx is insertion point
                     }
                 })
                 .unwrap_or(false);

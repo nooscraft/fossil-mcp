@@ -135,10 +135,7 @@ impl CiRunner {
             serde_json::Value::String(path.to_string_lossy().to_string()),
         );
         // Include phased comments and placeholders, skip TODOs by default
-        args.insert(
-            "include_todos".to_string(),
-            serde_json::Value::Bool(false),
-        );
+        args.insert("include_todos".to_string(), serde_json::Value::Bool(false));
         args.insert(
             "include_placeholders".to_string(),
             serde_json::Value::Bool(true),
