@@ -2787,3 +2787,516 @@ main();
         dead_names
     );
 }
+
+// =====================================================================
+// Test: Next.js App Router convention files not flagged as dead
+// =====================================================================
+
+#[test]
+fn test_nextjs_app_router_not_dead() {
+    let dir = TempDir::new().unwrap();
+
+    // Create package.json with next dependency
+    fs::write(
+        dir.path().join("package.json"),
+        r#"{"dependencies": {"next": "14.0.0", "react": "18.0.0"}}"#,
+    )
+    .unwrap();
+
+    // Create app directory structure
+    fs::create_dir_all(dir.path().join("app")).unwrap();
+
+    // App Router page with default export and generateMetadata
+    fs::write(
+        dir.path().join("app/page.tsx"),
+        r#"
+export function generateMetadata() {
+    return { title: "Home" };
+}
+
+export default function Page() {
+    return <div>Home</div>;
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+
+    // generateMetadata should be alive (nextjs preset lifecycle method)
+    assert!(
+        !dead_names.contains(&"generateMetadata".to_string()),
+        "Next.js generateMetadata() should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+    // Default export from page.tsx should be alive (convention file entry)
+    assert!(
+        !dead_names.contains(&"Page".to_string()),
+        "Next.js page.tsx default export should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test: Next.js API route handlers not flagged as dead
+// =====================================================================
+
+#[test]
+fn test_nextjs_route_handlers_not_dead() {
+    let dir = TempDir::new().unwrap();
+
+    fs::write(
+        dir.path().join("package.json"),
+        r#"{"dependencies": {"next": "14.0.0"}}"#,
+    )
+    .unwrap();
+
+    fs::create_dir_all(dir.path().join("app/api/users")).unwrap();
+
+    fs::write(
+        dir.path().join("app/api/users/route.ts"),
+        r#"
+export async function GET(request: Request) {
+    return Response.json({ users: [] });
+}
+
+export async function POST(request: Request) {
+    return Response.json({ created: true });
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+
+    assert!(
+        !dead_names.contains(&"GET".to_string()),
+        "Next.js route handler GET should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+    assert!(
+        !dead_names.contains(&"POST".to_string()),
+        "Next.js route handler POST should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test: Public API exports from package.json not flagged as dead
+// =====================================================================
+
+#[test]
+fn test_ts_package_json_exports_not_dead() {
+    let dir = TempDir::new().unwrap();
+
+    fs::write(
+        dir.path().join("package.json"),
+        r#"{"exports": {".": "./src/index.ts"}}"#,
+    )
+    .unwrap();
+
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+
+    fs::write(
+        dir.path().join("src/index.ts"),
+        r#"
+export function createClient(config: any) {
+    return new Client(config);
+}
+
+export function parseResponse(data: any) {
+    return JSON.parse(data);
+}
+
+function internalHelper() {
+    return 42;
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+
+    assert!(
+        !dead_names.contains(&"createClient".to_string()),
+        "Exported function in package.json exports module should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+    assert!(
+        !dead_names.contains(&"parseResponse".to_string()),
+        "Exported function in package.json exports module should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+#[test]
+fn test_ts_package_json_module_not_dead() {
+    let dir = TempDir::new().unwrap();
+
+    fs::write(
+        dir.path().join("package.json"),
+        r#"{"module": "./src/lib.ts"}"#,
+    )
+    .unwrap();
+
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+
+    fs::write(
+        dir.path().join("src/lib.ts"),
+        r#"
+export function formatDate(date: Date): string {
+    return date.toISOString();
+}
+
+export class DateFormatter {
+    format(date: Date): string {
+        return date.toISOString();
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+
+    assert!(
+        !dead_names.contains(&"formatDate".to_string()),
+        "Exported function in package.json 'module' target should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test: Python __init__.py __all__ exports not flagged as dead
+// =====================================================================
+
+#[test]
+fn test_python_init_all_not_dead() {
+    let dir = TempDir::new().unwrap();
+
+    let pkg_dir = dir.path().join("mypackage");
+    fs::create_dir_all(&pkg_dir).unwrap();
+
+    fs::write(
+        pkg_dir.join("__init__.py"),
+        r#"__all__ = ["public_func", "MyClass"]"#,
+    )
+    .unwrap();
+
+    fs::write(
+        pkg_dir.join("core.py"),
+        r#"
+def public_func():
+    return "public"
+
+def _internal_func():
+    return "internal"
+
+class MyClass:
+    def method(self):
+        pass
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+
+    assert!(
+        !dead_names.contains(&"public_func".to_string()),
+        "Python __all__ exported public_func should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+    assert!(
+        !dead_names.contains(&"MyClass".to_string()),
+        "Python __all__ exported MyClass should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test: Python __init__.py re-exports not flagged as dead
+// =====================================================================
+
+#[test]
+fn test_python_init_reexport_not_dead() {
+    let dir = TempDir::new().unwrap();
+
+    let pkg_dir = dir.path().join("mypackage");
+    fs::create_dir_all(&pkg_dir).unwrap();
+
+    fs::write(
+        pkg_dir.join("__init__.py"),
+        "from .core import MyClass\nfrom .utils import format_data\n",
+    )
+    .unwrap();
+
+    fs::write(
+        pkg_dir.join("core.py"),
+        r#"
+class MyClass:
+    def process(self):
+        pass
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        pkg_dir.join("utils.py"),
+        r#"
+def format_data(data):
+    return str(data)
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+
+    assert!(
+        !dead_names.contains(&"MyClass".to_string()),
+        "Python __init__.py re-exported MyClass should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+    assert!(
+        !dead_names.contains(&"format_data".to_string()),
+        "Python __init__.py re-exported format_data should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test: Python pyproject.toml console_scripts not flagged as dead
+// =====================================================================
+
+#[test]
+fn test_python_pyproject_scripts_not_dead() {
+    let dir = TempDir::new().unwrap();
+
+    fs::write(
+        dir.path().join("pyproject.toml"),
+        r#"
+[project.scripts]
+mycli = "mypackage.cli:main"
+"#,
+    )
+    .unwrap();
+
+    let pkg_dir = dir.path().join("mypackage");
+    fs::create_dir_all(&pkg_dir).unwrap();
+
+    fs::write(
+        pkg_dir.join("cli.py"),
+        r#"
+def main():
+    print("Hello from CLI")
+
+def helper():
+    return 42
+
+main()
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+
+    assert!(
+        !dead_names.contains(&"main".to_string()),
+        "pyproject.toml console_scripts main() should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test: benches/ directory functions classified as test-context (not dead production code)
+// =====================================================================
+
+#[test]
+fn test_benches_directory_not_dead() {
+    let dir = TempDir::new().unwrap();
+
+    // Create a library function that the bench calls
+    let src_dir = dir.path().join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(
+        src_dir.join("lib.rs"),
+        r#"
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+"#,
+    )
+    .unwrap();
+
+    // Create a Cargo.toml so the Rust preset is detected
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        r#"[package]
+name = "mylib"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+
+    // Create a benchmark function in benches/ directory
+    let bench_dir = dir.path().join("benches");
+    fs::create_dir_all(&bench_dir).unwrap();
+    fs::write(
+        bench_dir.join("my_bench.rs"),
+        r#"
+fn bench_add() {
+    let _result = add(1, 2);
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+
+    // bench_add is in benches/ → test context, should NOT be flagged as dead production code
+    assert!(
+        !dead_names.contains(&"bench_add".to_string()),
+        "Functions in benches/ directory should be test-context, not dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test: #[pymethods] impl block propagates to child methods
+// =====================================================================
+
+#[test]
+fn test_pyo3_pymethods_impl_block_propagation() {
+    let dir = TempDir::new().unwrap();
+
+    let src_dir = dir.path().join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+
+    // Create Cargo.toml with pyo3 dependency
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        r#"[package]
+name = "mypyo3"
+version = "0.1.0"
+
+[dependencies]
+pyo3 = "0.20"
+"#,
+    )
+    .unwrap();
+
+    // Create lib.rs with #[pymethods] impl block
+    fs::write(
+        src_dir.join("lib.rs"),
+        r#"
+pub struct MyClass {}
+
+#[pymethods]
+impl MyClass {
+    fn get_value(&self) -> i32 {
+        42
+    }
+
+    fn set_value(&self, val: i32) {
+        println!("{}", val);
+    }
+}
+
+pub fn main() {
+    let c = MyClass {};
+    c.get_value();
+    c.set_value(1);
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+
+    // Methods inside #[pymethods] impl block should NOT be dead
+    // (pymethods attribute propagated from impl block to methods)
+    assert!(
+        !dead_names.contains(&"get_value".to_string()),
+        "get_value in #[pymethods] impl should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+    assert!(
+        !dead_names.contains(&"set_value".to_string()),
+        "set_value in #[pymethods] impl should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
+// Test: Public structs/traits/enums in Rust libraries are not dead
+// =====================================================================
+
+#[test]
+fn test_public_structs_traits_not_dead() {
+    let dir = TempDir::new().unwrap();
+
+    let src_dir = dir.path().join("src");
+    fs::create_dir_all(&src_dir).unwrap();
+
+    // Create Cargo.toml so Rust preset is detected
+    fs::write(
+        dir.path().join("Cargo.toml"),
+        r#"[package]
+name = "mylib"
+version = "0.1.0"
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        src_dir.join("lib.rs"),
+        r#"
+pub struct Foo {
+    pub x: i32,
+}
+
+pub trait Bar {
+    fn do_something(&self);
+}
+
+pub enum Baz {
+    A,
+    B,
+}
+
+struct Internal {
+    y: i32,
+}
+
+fn unused_helper() -> i32 {
+    0
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+
+    // Public types should NOT be dead (they're part of the library's public API)
+    assert!(
+        !dead_names.contains(&"Foo".to_string()),
+        "pub struct Foo should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+    assert!(
+        !dead_names.contains(&"Bar".to_string()),
+        "pub trait Bar should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+    assert!(
+        !dead_names.contains(&"Baz".to_string()),
+        "pub enum Baz should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+
+    // Private function with no callers should still be dead
+    assert!(
+        dead_names.contains(&"unused_helper".to_string()),
+        "private unused_helper should be dead. Dead: {:?}",
+        dead_names
+    );
+}

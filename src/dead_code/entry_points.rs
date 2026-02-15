@@ -90,6 +90,7 @@ impl<'a> EntryPointDetector<'a> {
             || self.is_framework_entry(node)
             || self.is_python_dunder(node)
             || self.is_swift_coding_keys(node)
+            || self.is_nextjs_app_router_entry(node)
     }
 
     fn is_main_function(&self, node: &CodeNode) -> bool {
@@ -135,7 +136,14 @@ impl<'a> EntryPointDetector<'a> {
             && node.visibility == Visibility::Public
             && matches!(
                 node.kind,
-                NodeKind::Function | NodeKind::Method | NodeKind::AsyncFunction
+                NodeKind::Function
+                    | NodeKind::Method
+                    | NodeKind::AsyncFunction
+                    | NodeKind::AsyncMethod
+                    | NodeKind::Struct
+                    | NodeKind::Trait
+                    | NodeKind::Class
+                    | NodeKind::Interface
             )
     }
 
@@ -229,6 +237,27 @@ impl<'a> EntryPointDetector<'a> {
         node.language == crate::core::Language::Swift && node.name == "CodingKeys"
     }
 
+    /// Next.js App Router: exported functions from convention files
+    /// (page.tsx, layout.tsx, error.tsx, route.ts, etc.) are framework entry points.
+    fn is_nextjs_app_router_entry(&self, node: &CodeNode) -> bool {
+        if !matches!(
+            node.language,
+            crate::core::Language::TypeScript | crate::core::Language::JavaScript
+        ) {
+            return false;
+        }
+        let stem = std::path::Path::new(&node.location.file)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        let is_convention_file = matches!(
+            stem,
+            "page" | "layout" | "error" | "loading" | "not-found"
+                | "template" | "default" | "route" | "middleware"
+        );
+        is_convention_file && node.visibility == Visibility::Public
+    }
+
     fn is_test_entry(&self, node: &CodeNode) -> bool {
         if node.is_test {
             return true;
@@ -268,6 +297,8 @@ impl<'a> EntryPointDetector<'a> {
                     | "test-utils"
                     | "testutils"
                     | "testing"
+                    | "benches"
+                    | "benchmarks"
             ) {
                 return true;
             }
@@ -306,6 +337,7 @@ impl<'a> EntryPointDetector<'a> {
 pub fn detect_config_entry_points(root: &Path, graph: &CodeGraph) -> HashSet<NodeIndex> {
     let mut entries = HashSet::new();
     let mut entry_files: HashSet<String> = HashSet::new();
+    let mut api_module_files: HashSet<String> = HashSet::new();
 
     // Walk project directories for config files
     let walker = ignore::WalkBuilder::new(root)
@@ -356,6 +388,7 @@ pub fn detect_config_entry_points(root: &Path, graph: &CodeGraph) -> HashSet<Nod
             "package.json" => {
                 if let Ok(content) = std::fs::read_to_string(path) {
                     extract_package_json_entries(&content, path, &mut entry_files);
+                    extract_package_json_public_api_modules(&content, path, &mut api_module_files);
                 }
             }
             "cdk.json" => {
@@ -383,6 +416,45 @@ pub fn detect_config_entry_points(root: &Path, graph: &CodeGraph) -> HashSet<Nod
                 }
                 // Exported functions in entry files are entry points
                 if node.visibility == Visibility::Public {
+                    entries.insert(idx);
+                }
+            }
+        }
+    }
+
+    // Public API modules: only exported (public) functions/methods/classes are entry points.
+    // This is more targeted than entry_files — internal helpers in API module files
+    // are NOT marked as entry points, only the exported public surface.
+    for api_file in &api_module_files {
+        for (idx, node) in graph.nodes() {
+            let node_file = &node.location.file;
+            if node_file.ends_with(api_file) || api_file.ends_with(node_file) {
+                if node.visibility == Visibility::Public
+                    && matches!(
+                        node.kind,
+                        NodeKind::Function
+                            | NodeKind::Method
+                            | NodeKind::AsyncFunction
+                            | NodeKind::AsyncMethod
+                            | NodeKind::Class
+                    )
+                {
+                    entries.insert(idx);
+                }
+            }
+        }
+    }
+
+    // Python: detect __all__ exports and __init__.py re-exports
+    detect_python_public_api_entries(root, graph, &mut entries);
+
+    // Python: detect pyproject.toml and setup.py console_scripts
+    detect_python_script_entries(root, &mut entry_files);
+    for entry_file in &entry_files {
+        for (idx, node) in graph.nodes() {
+            let node_file = &node.location.file;
+            if node_file.ends_with(entry_file) || entry_file.ends_with(node_file) {
+                if node.name.starts_with("<module:") || node.visibility == Visibility::Public {
                     entries.insert(idx);
                 }
             }
@@ -545,6 +617,109 @@ fn extract_package_json_entries(content: &str, pkg_path: &Path, entry_files: &mu
     }
 }
 
+/// Extract public API module paths from package.json fields:
+/// "exports", "module", "types", "typings".
+///
+/// These represent the project's public surface — exported functions in these
+/// files should not be flagged as dead code.
+fn extract_package_json_public_api_modules(
+    content: &str,
+    pkg_path: &Path,
+    api_module_files: &mut HashSet<String>,
+) {
+    let dir = pkg_path.parent().unwrap_or(Path::new("."));
+
+    let json = match serde_json::from_str::<serde_json::Value>(content) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    // Collect raw paths from various package.json fields
+    let mut raw_paths: Vec<String> = Vec::new();
+
+    // "exports" field (string, object with ".", "./subpath", or nested "import"/"require"/"default")
+    if let Some(exports) = json.get("exports") {
+        collect_exports_paths(exports, &mut raw_paths);
+    }
+
+    // "module" field (ES module entry)
+    if let Some(module) = json.get("module").and_then(|v| v.as_str()) {
+        raw_paths.push(module.to_string());
+    }
+
+    // "types" / "typings" field (TypeScript declarations → source files)
+    for key in &["types", "typings"] {
+        if let Some(types_path) = json.get(*key).and_then(|v| v.as_str()) {
+            raw_paths.push(types_path.to_string());
+        }
+    }
+
+    // Normalize each path and add source-file variants
+    for raw in &raw_paths {
+        let cleaned = raw.strip_prefix("./").unwrap_or(raw);
+        if cleaned.is_empty() {
+            continue;
+        }
+
+        // Add the path as-is
+        let resolved = dir.join(cleaned);
+        api_module_files.insert(resolved.to_string_lossy().to_string());
+        api_module_files.insert(cleaned.to_string());
+
+        // Try dist/ → src/ variant (common build convention)
+        if cleaned.starts_with("dist/") || cleaned.starts_with("dist\\") {
+            let src_variant = format!("src/{}", &cleaned[5..]);
+            let resolved_src = dir.join(&src_variant);
+            api_module_files.insert(resolved_src.to_string_lossy().to_string());
+            api_module_files.insert(src_variant);
+        }
+
+        // Try .js → .ts variant
+        if cleaned.ends_with(".js") || cleaned.ends_with(".mjs") || cleaned.ends_with(".cjs") {
+            let ext_start = cleaned.rfind('.').unwrap();
+            let ts_variant = format!("{}.ts", &cleaned[..ext_start]);
+            let resolved_ts = dir.join(&ts_variant);
+            api_module_files.insert(resolved_ts.to_string_lossy().to_string());
+            api_module_files.insert(ts_variant.clone());
+            // Also try .tsx
+            let tsx_variant = format!("{}.tsx", &cleaned[..ext_start]);
+            let resolved_tsx = dir.join(&tsx_variant);
+            api_module_files.insert(resolved_tsx.to_string_lossy().to_string());
+            api_module_files.insert(tsx_variant);
+        }
+
+        // Try .d.ts → .ts variant (types/typings field)
+        if cleaned.ends_with(".d.ts") {
+            let ts_variant = format!("{}.ts", &cleaned[..cleaned.len() - 5]);
+            let resolved_ts = dir.join(&ts_variant);
+            api_module_files.insert(resolved_ts.to_string_lossy().to_string());
+            api_module_files.insert(ts_variant);
+        }
+    }
+}
+
+/// Recursively collect file paths from a package.json "exports" field.
+fn collect_exports_paths(value: &serde_json::Value, paths: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(s) => {
+            paths.push(s.clone());
+        }
+        serde_json::Value::Object(map) => {
+            for (key, val) in map {
+                // Keys like ".", "./utils", "import", "require", "default", "types", "node"
+                // are all valid — recurse into the value
+                if key == "default" || key == "import" || key == "require"
+                    || key == "types" || key == "node" || key == "browser"
+                    || key.starts_with('.')
+                {
+                    collect_exports_paths(val, paths);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn extract_cdk_json_entries(content: &str, cdk_path: &Path, entry_files: &mut HashSet<String>) {
     let dir = cdk_path.parent().unwrap_or(Path::new("."));
 
@@ -565,6 +740,184 @@ fn extract_cdk_json_entries(content: &str, cdk_path: &Path, entry_files: &mut Ha
             }
         }
     }
+}
+
+/// Detect Python public API entries from `__init__.py` files:
+/// - `__all__ = ["name1", "name2"]` declarations
+/// - `from .module import name` re-exports
+fn detect_python_public_api_entries(
+    root: &Path,
+    graph: &CodeGraph,
+    entries: &mut HashSet<NodeIndex>,
+) {
+    let re_all = Regex::new(r#"__all__\s*=\s*\[([^\]]*)\]"#).ok();
+    let re_all_name = Regex::new(r#"["'](\w+)["']"#).ok();
+    let re_reexport = Regex::new(r#"from\s+\.[\w.]*\s+import\s+(.+)"#).ok();
+
+    let walker = ignore::WalkBuilder::new(root)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .hidden(true)
+        .max_depth(Some(10))
+        .build();
+
+    for entry in walker.flatten() {
+        let path = entry.path();
+        let file_name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+
+        if file_name != "__init__.py" {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let mut public_names: HashSet<String> = HashSet::new();
+
+        // Parse __all__ = ["name1", "name2", ...]
+        // Handle multi-line by joining all lines first
+        let joined = content.replace('\n', " ");
+        if let Some(ref re) = re_all {
+            if let Some(caps) = re.captures(&joined) {
+                if let (Some(list_content), Some(ref re_name)) = (caps.get(1), &re_all_name) {
+                    for name_cap in re_name.captures_iter(list_content.as_str()) {
+                        if let Some(name) = name_cap.get(1) {
+                            public_names.insert(name.as_str().to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Parse `from .module import name1, name2` re-exports
+        if let Some(ref re) = re_reexport {
+            for caps in re.captures_iter(&content) {
+                if let Some(imports_str) = caps.get(1) {
+                    for name in imports_str.as_str().split(',') {
+                        let trimmed = name.trim();
+                        // Handle "name as alias" — use the alias
+                        let actual_name = if let Some((_orig, alias)) = trimmed.split_once(" as ") {
+                            alias.trim()
+                        } else {
+                            trimmed
+                        };
+                        if !actual_name.is_empty()
+                            && !actual_name.starts_with('(')
+                            && !actual_name.starts_with('#')
+                        {
+                            public_names.insert(actual_name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Match public names to graph nodes (Python functions/classes)
+        if !public_names.is_empty() {
+            // Get the package directory for scoping
+            let init_dir = path.parent().unwrap_or(Path::new("."));
+            let init_dir_str = init_dir.to_string_lossy();
+
+            for (idx, node) in graph.nodes() {
+                if node.language != crate::core::Language::Python {
+                    continue;
+                }
+                // Check the node is in the same package (directory tree)
+                if node.location.file.contains(&*init_dir_str)
+                    || init_dir_str.contains(&node.location.file)
+                    || is_in_package_dir(&node.location.file, &init_dir_str)
+                {
+                    if public_names.contains(&node.name) {
+                        entries.insert(idx);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Check if a file is within a package directory (handles relative paths).
+fn is_in_package_dir(file_path: &str, dir_path: &str) -> bool {
+    // Normalize both paths for comparison
+    let file_normalized = file_path.replace('\\', "/");
+    let dir_normalized = dir_path.replace('\\', "/");
+
+    // Check if the file's directory starts with or ends with the package dir
+    if let Some(file_dir) = file_normalized.rsplit_once('/').map(|(d, _)| d) {
+        file_dir.ends_with(&dir_normalized) || dir_normalized.ends_with(file_dir)
+    } else {
+        false
+    }
+}
+
+/// Detect Python console_scripts from pyproject.toml and setup.py.
+fn detect_python_script_entries(root: &Path, entry_files: &mut HashSet<String>) {
+    // Check pyproject.toml
+    let pyproject_path = root.join("pyproject.toml");
+    if let Ok(content) = std::fs::read_to_string(&pyproject_path) {
+        if let Ok(toml_value) = toml::from_str::<toml::Value>(&content) {
+            // [project.scripts] format (PEP 621)
+            if let Some(scripts) = toml_value
+                .get("project")
+                .and_then(|p| p.get("scripts"))
+                .and_then(|s| s.as_table())
+            {
+                for (_cmd, val) in scripts {
+                    if let Some(entry) = val.as_str() {
+                        if let Some(file) = python_entry_to_file(entry) {
+                            entry_files.insert(file);
+                        }
+                    }
+                }
+            }
+
+            // [tool.poetry.scripts] format (Poetry)
+            if let Some(scripts) = toml_value
+                .get("tool")
+                .and_then(|t| t.get("poetry"))
+                .and_then(|p| p.get("scripts"))
+                .and_then(|s| s.as_table())
+            {
+                for (_cmd, val) in scripts {
+                    if let Some(entry) = val.as_str() {
+                        if let Some(file) = python_entry_to_file(entry) {
+                            entry_files.insert(file);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Check setup.py
+    let setup_path = root.join("setup.py");
+    if let Ok(content) = std::fs::read_to_string(&setup_path) {
+        let re = Regex::new(r#"["'][\w-]+\s*=\s*([\w.]+):(\w+)["']"#).ok();
+        if let Some(ref re) = re {
+            for caps in re.captures_iter(&content) {
+                if let Some(module_path) = caps.get(1) {
+                    let file = module_path.as_str().replace('.', "/") + ".py";
+                    entry_files.insert(file);
+                }
+            }
+        }
+    }
+}
+
+/// Convert a Python console_scripts entry like "module.path:function" to a file path.
+fn python_entry_to_file(entry: &str) -> Option<String> {
+    // Format: "module.path:function_name"
+    let module_part = entry.split(':').next()?;
+    if module_part.is_empty() {
+        return None;
+    }
+    Some(module_part.replace('.', "/") + ".py")
 }
 
 #[cfg(test)]
@@ -1403,6 +1756,379 @@ mod tests {
         assert!(
             !entries.is_empty(),
             "Kotlin @Parcelize should be detected as entry point"
+        );
+    }
+
+    #[test]
+    fn test_nextjs_app_router_page_is_entry_point() {
+        let mut graph = CodeGraph::new();
+        graph.add_node(CodeNode::new(
+            "Page".to_string(),
+            NodeKind::Function,
+            SourceLocation::new("app/dashboard/page.tsx".to_string(), 1, 10, 0, 0),
+            Language::TypeScript,
+            Visibility::Public,
+        ));
+
+        let detector = EntryPointDetector::new(&graph);
+        let entries = detector.detect_production_entry_points();
+        assert!(
+            !entries.is_empty(),
+            "Next.js App Router page.tsx export should be detected as entry point"
+        );
+    }
+
+    #[test]
+    fn test_nextjs_app_router_layout_is_entry_point() {
+        let mut graph = CodeGraph::new();
+        graph.add_node(CodeNode::new(
+            "RootLayout".to_string(),
+            NodeKind::Function,
+            SourceLocation::new("app/layout.tsx".to_string(), 1, 10, 0, 0),
+            Language::TypeScript,
+            Visibility::Public,
+        ));
+
+        let detector = EntryPointDetector::new(&graph);
+        let entries = detector.detect_production_entry_points();
+        assert!(
+            !entries.is_empty(),
+            "Next.js App Router layout.tsx export should be detected as entry point"
+        );
+    }
+
+    #[test]
+    fn test_nextjs_app_router_route_handler_is_entry_point() {
+        let mut graph = CodeGraph::new();
+        graph.add_node(CodeNode::new(
+            "GET".to_string(),
+            NodeKind::Function,
+            SourceLocation::new("app/api/users/route.ts".to_string(), 1, 10, 0, 0),
+            Language::TypeScript,
+            Visibility::Public,
+        ));
+
+        let detector = EntryPointDetector::new(&graph);
+        let entries = detector.detect_production_entry_points();
+        assert!(
+            !entries.is_empty(),
+            "Next.js App Router route.ts GET handler should be detected as entry point"
+        );
+    }
+
+    #[test]
+    fn test_nextjs_private_function_in_page_not_entry_point() {
+        let mut graph = CodeGraph::new();
+        graph.add_node(CodeNode::new(
+            "helperFunction".to_string(),
+            NodeKind::Function,
+            SourceLocation::new("app/page.tsx".to_string(), 1, 10, 0, 0),
+            Language::TypeScript,
+            Visibility::Private,
+        ));
+
+        let detector = EntryPointDetector::new(&graph);
+        let entries = detector.detect_production_entry_points();
+        assert!(
+            entries.is_empty(),
+            "Private function in page.tsx should NOT be an entry point"
+        );
+    }
+
+    #[test]
+    fn test_nextjs_non_convention_file_not_entry_point() {
+        let mut graph = CodeGraph::new();
+        graph.add_node(CodeNode::new(
+            "MyComponent".to_string(),
+            NodeKind::Function,
+            SourceLocation::new("app/components/Button.tsx".to_string(), 1, 10, 0, 0),
+            Language::TypeScript,
+            Visibility::Public,
+        ));
+
+        let detector = EntryPointDetector::new(&graph);
+        let entries = detector.detect_production_entry_points();
+        assert!(
+            entries.is_empty(),
+            "Exported function in non-convention file should NOT be an entry point"
+        );
+    }
+
+    #[test]
+    fn test_package_json_exports_public_api() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"exports": {"." : "./src/index.ts"}}"#,
+        )
+        .unwrap();
+
+        let mut graph = CodeGraph::new();
+        // Public function in the API module → should be entry point
+        graph.add_node(CodeNode::new(
+            "createClient".to_string(),
+            NodeKind::Function,
+            SourceLocation::new("src/index.ts".to_string(), 1, 10, 0, 0),
+            Language::TypeScript,
+            Visibility::Public,
+        ));
+        // Private helper in the API module → should NOT be entry point
+        graph.add_node(CodeNode::new(
+            "internalHelper".to_string(),
+            NodeKind::Function,
+            SourceLocation::new("src/index.ts".to_string(), 20, 25, 0, 0),
+            Language::TypeScript,
+            Visibility::Private,
+        ));
+
+        let config_entries = detect_config_entry_points(dir.path(), &graph);
+        let entry_names: Vec<String> = config_entries
+            .iter()
+            .filter_map(|idx| graph.get_node(*idx).map(|n| n.name.clone()))
+            .collect();
+
+        assert!(
+            entry_names.contains(&"createClient".to_string()),
+            "Public function in exports module should be entry point. Got: {:?}",
+            entry_names
+        );
+        assert!(
+            !entry_names.contains(&"internalHelper".to_string()),
+            "Private function in exports module should NOT be entry point. Got: {:?}",
+            entry_names
+        );
+    }
+
+    #[test]
+    fn test_package_json_module_field_public_api() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"module": "./src/lib.ts"}"#,
+        )
+        .unwrap();
+
+        let mut graph = CodeGraph::new();
+        graph.add_node(CodeNode::new(
+            "exportedUtil".to_string(),
+            NodeKind::Function,
+            SourceLocation::new("src/lib.ts".to_string(), 1, 10, 0, 0),
+            Language::TypeScript,
+            Visibility::Public,
+        ));
+
+        let config_entries = detect_config_entry_points(dir.path(), &graph);
+        let entry_names: Vec<String> = config_entries
+            .iter()
+            .filter_map(|idx| graph.get_node(*idx).map(|n| n.name.clone()))
+            .collect();
+
+        assert!(
+            entry_names.contains(&"exportedUtil".to_string()),
+            "Public function in 'module' field target should be entry point. Got: {:?}",
+            entry_names
+        );
+    }
+
+    #[test]
+    fn test_package_json_exports_nested_object() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"exports": {".": {"import": "./src/index.ts", "require": "./src/index.cjs"}, "./utils": "./src/utils.ts"}}"#,
+        )
+        .unwrap();
+
+        let mut graph = CodeGraph::new();
+        graph.add_node(CodeNode::new(
+            "mainExport".to_string(),
+            NodeKind::Function,
+            SourceLocation::new("src/index.ts".to_string(), 1, 10, 0, 0),
+            Language::TypeScript,
+            Visibility::Public,
+        ));
+        graph.add_node(CodeNode::new(
+            "utilExport".to_string(),
+            NodeKind::Function,
+            SourceLocation::new("src/utils.ts".to_string(), 1, 10, 0, 0),
+            Language::TypeScript,
+            Visibility::Public,
+        ));
+
+        let config_entries = detect_config_entry_points(dir.path(), &graph);
+        let entry_names: Vec<String> = config_entries
+            .iter()
+            .filter_map(|idx| graph.get_node(*idx).map(|n| n.name.clone()))
+            .collect();
+
+        assert!(
+            entry_names.contains(&"mainExport".to_string()),
+            "Main export from nested exports should be entry point. Got: {:?}",
+            entry_names
+        );
+        assert!(
+            entry_names.contains(&"utilExport".to_string()),
+            "Subpath export from exports should be entry point. Got: {:?}",
+            entry_names
+        );
+    }
+
+    #[test]
+    fn test_python_init_all_public_api() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let pkg_dir = dir.path().join("mypackage");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+
+        std::fs::write(
+            pkg_dir.join("__init__.py"),
+            r#"__all__ = ["public_func", "MyClass"]"#,
+        )
+        .unwrap();
+
+        let mut graph = CodeGraph::new();
+        let pkg_dir_str = pkg_dir.to_string_lossy().to_string();
+        graph.add_node(CodeNode::new(
+            "public_func".to_string(),
+            NodeKind::Function,
+            SourceLocation::new(format!("{}/core.py", pkg_dir_str), 1, 10, 0, 0),
+            Language::Python,
+            Visibility::Public,
+        ));
+        graph.add_node(CodeNode::new(
+            "MyClass".to_string(),
+            NodeKind::Class,
+            SourceLocation::new(format!("{}/models.py", pkg_dir_str), 1, 10, 0, 0),
+            Language::Python,
+            Visibility::Public,
+        ));
+        graph.add_node(CodeNode::new(
+            "_internal_func".to_string(),
+            NodeKind::Function,
+            SourceLocation::new(format!("{}/core.py", pkg_dir_str), 20, 25, 0, 0),
+            Language::Python,
+            Visibility::Public,
+        ));
+
+        let config_entries = detect_config_entry_points(dir.path(), &graph);
+        let entry_names: Vec<String> = config_entries
+            .iter()
+            .filter_map(|idx| graph.get_node(*idx).map(|n| n.name.clone()))
+            .collect();
+
+        assert!(
+            entry_names.contains(&"public_func".to_string()),
+            "__all__ public_func should be entry point. Got: {:?}",
+            entry_names
+        );
+        assert!(
+            entry_names.contains(&"MyClass".to_string()),
+            "__all__ MyClass should be entry point. Got: {:?}",
+            entry_names
+        );
+        assert!(
+            !entry_names.contains(&"_internal_func".to_string()),
+            "_internal_func NOT in __all__ should not be entry point. Got: {:?}",
+            entry_names
+        );
+    }
+
+    #[test]
+    fn test_python_init_reexport_public_api() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let pkg_dir = dir.path().join("mypackage");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+
+        std::fs::write(
+            pkg_dir.join("__init__.py"),
+            "from .core import MyClass, helper_func\nfrom .utils import format_data\n",
+        )
+        .unwrap();
+
+        let mut graph = CodeGraph::new();
+        let pkg_dir_str = pkg_dir.to_string_lossy().to_string();
+        graph.add_node(CodeNode::new(
+            "MyClass".to_string(),
+            NodeKind::Class,
+            SourceLocation::new(format!("{}/core.py", pkg_dir_str), 1, 10, 0, 0),
+            Language::Python,
+            Visibility::Public,
+        ));
+        graph.add_node(CodeNode::new(
+            "helper_func".to_string(),
+            NodeKind::Function,
+            SourceLocation::new(format!("{}/core.py", pkg_dir_str), 20, 25, 0, 0),
+            Language::Python,
+            Visibility::Public,
+        ));
+        graph.add_node(CodeNode::new(
+            "format_data".to_string(),
+            NodeKind::Function,
+            SourceLocation::new(format!("{}/utils.py", pkg_dir_str), 1, 10, 0, 0),
+            Language::Python,
+            Visibility::Public,
+        ));
+
+        let config_entries = detect_config_entry_points(dir.path(), &graph);
+        let entry_names: Vec<String> = config_entries
+            .iter()
+            .filter_map(|idx| graph.get_node(*idx).map(|n| n.name.clone()))
+            .collect();
+
+        assert!(
+            entry_names.contains(&"MyClass".to_string()),
+            "Re-exported MyClass should be entry point. Got: {:?}",
+            entry_names
+        );
+        assert!(
+            entry_names.contains(&"format_data".to_string()),
+            "Re-exported format_data should be entry point. Got: {:?}",
+            entry_names
+        );
+    }
+
+    #[test]
+    fn test_python_pyproject_scripts_entry() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join("pyproject.toml"),
+            r#"
+[project.scripts]
+mycli = "mypackage.cli:main"
+"#,
+        )
+        .unwrap();
+
+        let mut graph = CodeGraph::new();
+        graph.add_node(CodeNode::new(
+            "main".to_string(),
+            NodeKind::Function,
+            SourceLocation::new("mypackage/cli.py".to_string(), 1, 10, 0, 0),
+            Language::Python,
+            Visibility::Public,
+        ));
+
+        let config_entries = detect_config_entry_points(dir.path(), &graph);
+        let entry_names: Vec<String> = config_entries
+            .iter()
+            .filter_map(|idx| graph.get_node(*idx).map(|n| n.name.clone()))
+            .collect();
+
+        assert!(
+            entry_names.contains(&"main".to_string()),
+            "pyproject.toml console_scripts entry should be detected. Got: {:?}",
+            entry_names
         );
     }
 }

@@ -357,7 +357,8 @@ impl Detector {
     }
 
     /// Infer the project root path from parsed files.
-    /// Uses the common prefix of all file paths, or falls back to the first file's parent.
+    /// Uses the common prefix of all file paths, then walks up to find a project
+    /// root marker (package.json, Cargo.toml, pyproject.toml, .git).
     fn infer_root_path(parsed_files: &[ParsedFile]) -> Option<String> {
         if parsed_files.is_empty() {
             return None;
@@ -377,7 +378,27 @@ impl Detector {
                     };
                 }
             }
-            Some(common.to_string_lossy().to_string())
+            // Ensure we have a directory, not a file path
+            let dir = if common.is_file() {
+                common.parent().unwrap_or(common)
+            } else {
+                common
+            };
+            // Walk up from common directory to find the actual project root
+            // (where config files like package.json, Cargo.toml etc. live)
+            let mut candidate = Some(dir);
+            while let Some(d) = candidate {
+                if d.join("package.json").exists()
+                    || d.join("Cargo.toml").exists()
+                    || d.join("pyproject.toml").exists()
+                    || d.join("setup.py").exists()
+                    || d.join(".git").exists()
+                {
+                    return Some(d.to_string_lossy().to_string());
+                }
+                candidate = d.parent();
+            }
+            Some(dir.to_string_lossy().to_string())
         } else {
             // Relative paths - try current directory or parent of first file
             first_path

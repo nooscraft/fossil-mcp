@@ -195,11 +195,42 @@ static PRESETS: &[Preset] = &[
         entry_functions: &[],
         lifecycle_methods: &[],
     },
+    // Next.js App Router + Pages Router
+    Preset {
+        name: "nextjs",
+        detect_files: &["next.config.js", "next.config.mjs", "next.config.ts"],
+        detect_deps: &["next"],
+        entry_attributes: &[],
+        entry_functions: &[
+            // App Router Route Handlers (exported named functions)
+            "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS",
+        ],
+        lifecycle_methods: &[
+            // App Router exported functions from page/layout/route files
+            "generateMetadata",
+            "generateStaticParams",
+            "generateViewport",
+            // Pages Router (legacy, but still widely used)
+            "getStaticProps",
+            "getServerSideProps",
+            "getStaticPaths",
+            // Middleware
+            "middleware",
+            // Config exports
+            "revalidate",
+            "dynamic",
+            "dynamicParams",
+            "fetchCache",
+            "runtime",
+            "preferredRegion",
+            "maxDuration",
+        ],
+    },
     // React lifecycle methods
     Preset {
         name: "react",
         detect_files: &[],
-        detect_deps: &["react", "react-dom", "next"],
+        detect_deps: &["react", "react-dom"],
         entry_attributes: &[],
         entry_functions: &["App"],
         lifecycle_methods: &[
@@ -211,9 +242,6 @@ static PRESETS: &[Preset] = &[
             "getDerivedStateFromError",
             "shouldComponentUpdate",
             "getSnapshotBeforeUpdate",
-            "getStaticProps",
-            "getServerSideProps",
-            "getStaticPaths",
         ],
     },
     // Vue lifecycle hooks

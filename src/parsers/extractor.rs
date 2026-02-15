@@ -519,6 +519,7 @@ pub fn extract_attributes(tree: &ZeroCopyParseTree) -> Vec<(String, usize, Vec<S
         &mut results,
         None,
         false,
+        &[],
     );
     results
 }
@@ -530,13 +531,20 @@ fn collect_attributes(
     results: &mut Vec<(String, usize, Vec<String>)>,
     impl_trait: Option<&str>,
     in_cfg_test: bool,
+    impl_attrs: &[String],
 ) {
     let kind = node.kind();
 
     // Track impl trait context for Rust
     let mut current_impl_trait: Option<String> = impl_trait.map(|s| s.to_string());
+    // Track impl-block attributes (e.g. #[pymethods]) to propagate to child methods
+    let mut current_impl_attrs: Vec<String> = impl_attrs.to_vec();
     if kind == "impl_item" && language == crate::core::Language::Rust {
         current_impl_trait = extract_impl_trait_name_ast(node, source);
+        // Collect attributes on the impl block itself (e.g. #[pymethods])
+        let mut block_attrs = Vec::new();
+        collect_rust_attributes(node, source, &mut block_attrs);
+        current_impl_attrs = block_attrs;
     }
 
     // Track cfg(test) context for Rust modules
@@ -601,6 +609,15 @@ fn collect_attributes(
                 _ => {}
             }
 
+            // Propagate impl-block attributes (e.g. #[pymethods]) to child methods
+            if is_func_def && !current_impl_attrs.is_empty() {
+                for impl_attr in &current_impl_attrs {
+                    if !attrs.contains(impl_attr) {
+                        attrs.push(impl_attr.clone());
+                    }
+                }
+            }
+
             // Add impl trait context for Rust functions inside impl blocks
             if let Some(ref trait_name) = current_impl_trait {
                 if is_func_def {
@@ -651,6 +668,7 @@ fn collect_attributes(
             results,
             current_impl_trait.as_deref(),
             current_cfg_test,
+            &current_impl_attrs,
         );
     }
 }
