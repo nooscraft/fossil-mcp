@@ -6,7 +6,6 @@
 //! - `CFG` — intra-procedural control flow graph
 //! - `Dominance` — dominator tree construction
 
-pub mod bloom_filter;
 pub mod builder;
 pub mod centrality;
 pub mod cfg;
@@ -26,7 +25,6 @@ pub mod symbol_table;
 pub mod var_extractor;
 pub mod vta;
 
-pub use bloom_filter::BloomFilter;
 pub use builder::GraphBuilder;
 pub use centrality::{
     classify_importance, compute_betweenness, compute_centrality, compute_pagerank,

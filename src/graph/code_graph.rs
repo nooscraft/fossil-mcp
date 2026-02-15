@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::core::{CallEdge, CodeNode, EdgeConfidence, Language, NodeId};
-use crate::graph::BloomFilter;
+use sketch_oxide::membership::BloomFilter;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::Direction;
 
