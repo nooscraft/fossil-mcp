@@ -679,16 +679,16 @@ fn extract_package_json_public_api_modules(
             continue;
         }
 
-        // Add the path as-is
+        // Add the path as-is (normalize to forward slashes for cross-platform consistency)
         let resolved = dir.join(cleaned);
-        api_module_files.insert(resolved.to_string_lossy().to_string());
-        api_module_files.insert(cleaned.to_string());
+        api_module_files.insert(resolved.to_string_lossy().replace('\\', "/"));
+        api_module_files.insert(cleaned.replace('\\', "/"));
 
         // Try dist/ → src/ variant (common build convention)
         if cleaned.starts_with("dist/") || cleaned.starts_with("dist\\") {
             let src_variant = format!("src/{}", &cleaned[5..]);
             let resolved_src = dir.join(&src_variant);
-            api_module_files.insert(resolved_src.to_string_lossy().to_string());
+            api_module_files.insert(resolved_src.to_string_lossy().replace('\\', "/"));
             api_module_files.insert(src_variant);
         }
 
@@ -697,12 +697,12 @@ fn extract_package_json_public_api_modules(
             let ext_start = cleaned.rfind('.').unwrap();
             let ts_variant = format!("{}.ts", &cleaned[..ext_start]);
             let resolved_ts = dir.join(&ts_variant);
-            api_module_files.insert(resolved_ts.to_string_lossy().to_string());
+            api_module_files.insert(resolved_ts.to_string_lossy().replace('\\', "/"));
             api_module_files.insert(ts_variant.clone());
             // Also try .tsx
             let tsx_variant = format!("{}.tsx", &cleaned[..ext_start]);
             let resolved_tsx = dir.join(&tsx_variant);
-            api_module_files.insert(resolved_tsx.to_string_lossy().to_string());
+            api_module_files.insert(resolved_tsx.to_string_lossy().replace('\\', "/"));
             api_module_files.insert(tsx_variant);
         }
 
@@ -710,7 +710,7 @@ fn extract_package_json_public_api_modules(
         if let Some(stripped) = cleaned.strip_suffix(".d.ts") {
             let ts_variant = format!("{}.ts", stripped);
             let resolved_ts = dir.join(&ts_variant);
-            api_module_files.insert(resolved_ts.to_string_lossy().to_string());
+            api_module_files.insert(resolved_ts.to_string_lossy().replace('\\', "/"));
             api_module_files.insert(ts_variant);
         }
     }
