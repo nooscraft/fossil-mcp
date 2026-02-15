@@ -51,8 +51,8 @@ impl CsrGraph {
             row_offsets[i] += row_offsets[i - 1];
         }
 
-        // Sort edges by source node for CSR format
-        edges.sort_by_key(|e| e.0.index());
+        // Sort edges by (source, target) for CSR format — target order needed for binary_search
+        edges.sort_by(|a, b| (a.0.index(), a.1.index()).cmp(&(b.0.index(), b.1.index())));
 
         let mut column_indices = Vec::with_capacity(edges.len());
         let mut edge_data = Vec::with_capacity(edges.len());

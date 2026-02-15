@@ -192,13 +192,6 @@ impl GraphBuilder {
             HashMap::new();
 
         // === Build priority worklist for high-confidence calls ===
-        // Collect all unresolved calls with caller file context
-        let mut caller_file_map: HashMap<NodeId, String> = HashMap::new();
-        for pf in parsed_files {
-            for node in &pf.nodes {
-                caller_file_map.insert(node.id, pf.path.clone());
-            }
-        }
 
         // Count total calls before worklist optimization
         let _total_unresolved_calls: usize = parsed_files
@@ -220,7 +213,7 @@ impl GraphBuilder {
         // Build priority worklist (BinaryHeap for efficient max-priority extraction)
         // Store (priority, index) pairs to look up calls separately
         // Include reachability info in priority computation
-        let mut worklist: BinaryHeap<(std::cmp::Reverse<u32>, usize)> = all_unresolved_calls
+        let mut worklist: BinaryHeap<(u32, usize)> = all_unresolved_calls
             .iter()
             .enumerate()
             .map(|(i, (call, _, _))| {
@@ -229,8 +222,8 @@ impl GraphBuilder {
                     .map(|idx| all_reachable.contains(&idx))
                     .unwrap_or(false);
                 let priority = compute_call_priority(call, is_caller_reachable);
-                // Use Reverse for max-heap behavior (higher priority popped first)
-                (std::cmp::Reverse(priority), i)
+                // BinaryHeap is a max-heap: higher priority popped first
+                (priority, i)
             })
             .collect();
 

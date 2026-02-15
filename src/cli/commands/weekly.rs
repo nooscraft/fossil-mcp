@@ -54,6 +54,7 @@ pub fn run(detailed: bool) -> Result<String, crate::core::Error> {
 
     // Fetch JSON from https://fossil-mcp.com/data/weekly_slop.json
     let response = ureq::get("https://fossil-mcp.com/data/weekly_slop.json")
+        .timeout(std::time::Duration::from_secs(10))
         .call()
         .map_err(|e| {
             crate::core::Error::config(format!(

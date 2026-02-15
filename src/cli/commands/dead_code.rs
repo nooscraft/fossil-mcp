@@ -134,10 +134,8 @@ pub fn run(
         eprintln!("No dead code found.");
     }
 
-    // Compute and print graph statistics if requested
+    // Compute and print graph statistics if requested (reuse existing pipeline_result)
     if stats {
-        let pipeline = Pipeline::with_defaults();
-        let pipeline_result = pipeline.run(path)?;
         let graph_stats = CodeGraphStats::compute(&pipeline_result.graph);
         eprint!("{}", graph_stats.report());
     }

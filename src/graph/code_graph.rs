@@ -78,10 +78,9 @@ impl CodeGraph {
             self.name_to_ids.entry(full_name).or_default().push(id);
         }
         self.file_to_node_ids.entry(file).or_default().push(id);
-        // LAZY: file_name_index will be built on first call to find_node_by_name_in_file()
-        // Invalidate cached index and filter so they get rebuilt with new node
+        // Invalidate cached index so it gets rebuilt with new node
+        // (filter is rebuilt alongside the index in ensure_file_name_index_built)
         *self.file_name_index.borrow_mut() = None;
-        *self.file_name_filter.borrow_mut() = BloomFilter::new(50_000, 0.01);
         idx
     }
 
@@ -104,11 +103,13 @@ impl CodeGraph {
         let edge_bytes = edge_key.as_bytes();
 
         if !self.edge_dedup_filter.contains(edge_bytes) {
-            // Edge probably not inserted yet, so add it and mark in filter
+            // Edge definitely not present — add it and mark in filter
             self.graph.add_edge(*from_idx, *to_idx, edge);
             self.edge_dedup_filter.insert(edge_bytes);
+        } else if self.graph.find_edge(*from_idx, *to_idx).is_none() {
+            // Bloom filter false positive — edge not actually present, add it
+            self.graph.add_edge(*from_idx, *to_idx, edge);
         }
-        // If edge is in filter, skip (with 1% false positive rate)
 
         Ok(())
     }
@@ -126,6 +127,12 @@ impl CodeGraph {
             let edge = CallEdge::certain(from_id, to_id);
             self.graph.add_edge(from, to, edge);
             self.edge_dedup_filter.insert(edge_bytes);
+        } else if self.graph.find_edge(from, to).is_none() {
+            // Bloom filter false positive — edge not actually present, add it
+            let from_id = self.graph[from].id;
+            let to_id = self.graph[to].id;
+            let edge = CallEdge::certain(from_id, to_id);
+            self.graph.add_edge(from, to, edge);
         }
     }
 
@@ -436,6 +443,9 @@ impl CodeGraph {
                 if !self.edge_dedup_filter.contains(edge_bytes) {
                     self.graph.add_edge(from, to, edge.clone());
                     self.edge_dedup_filter.insert(edge_bytes);
+                } else if self.graph.find_edge(from, to).is_none() {
+                    // Bloom filter false positive — edge not actually present, add it
+                    self.graph.add_edge(from, to, edge.clone());
                 }
             }
         }

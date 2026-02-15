@@ -119,9 +119,8 @@ impl RapidTypeAnalysis {
         // Second pass: now that we have all instantiated types, re-resolve any
         // virtual calls that may have gained new targets due to types discovered
         // later in the iteration.
-        // OPTIMIZATION: Track only newly-added methods instead of re-scanning all reachable_methods.
-        // This reduces iteration from O(reachable_methods) × (virtual calls) to O(new_methods) × (virtual calls).
-        let mut methods_to_reprocess: Vec<NodeIndex> = worklist.drain(..).collect();
+        // Seed from all reachable methods (the worklist is empty after the first pass).
+        let mut methods_to_reprocess: Vec<NodeIndex> = reachable_methods.iter().copied().collect();
         let mut iteration = 0;
         const MAX_ITERATIONS: usize = 100; // Safety limit to prevent infinite loops
 
