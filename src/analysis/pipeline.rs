@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Instant;
 
-use crate::core::{Language, ParsedFile, Timer};
+use crate::core::{Language, ParsedFile};
 use crate::graph::{CodeGraph, GraphBuilder};
 use crate::parsers::ParserRegistry;
 use rayon::prelude::*;
@@ -71,21 +71,17 @@ impl Pipeline {
     /// across Rayon threads in chunks of `num_files / (num_cpus * 2)`.
     pub fn run(&self, root: &Path) -> Result<PipelineResult, crate::core::Error> {
         let start = Instant::now();
-        let timer = Timer::start("Pipeline");
 
         // Scan for source files
-        let scan_timer = Timer::start_nested("File Scanning", "Pipeline");
         let scanner = FileScanner::new().with_max_file_size(self.config.max_file_size);
         let files = scanner.scan(root)?;
         let files_scanned = files.len();
         info!("Scanned {} source files", files_scanned);
-        scan_timer.stop_with_info(format!("{} files", files_scanned));
 
         // Group files by directory for cache locality
         let files = group_by_directory(files);
 
         // Parse files (parallel, chunk-based)
-        let parse_timer = Timer::start_nested("File Parsing", "Pipeline");
         let registry = ParserRegistry::with_defaults()?;
         let parse_results: Vec<Result<ParsedFile, (String, String)>> = if self.config.parallel {
             let chunk_size = compute_chunk_size(files_scanned);
@@ -120,10 +116,8 @@ impl Pipeline {
         }
         let files_parsed = parsed_files.len();
         info!("Parsed {} files ({} errors)", files_parsed, errors.len());
-        parse_timer.stop_with_info(format!("{} files parsed, {} errors", files_parsed, errors.len()));
 
         // Build project graph
-        let graph_timer = Timer::start_nested("Graph Building", "Pipeline");
         let builder = GraphBuilder::new()?;
         let graph = builder.build_project_graph(&parsed_files)?;
         info!(
@@ -131,10 +125,8 @@ impl Pipeline {
             graph.node_count(),
             graph.edge_count()
         );
-        graph_timer.stop_with_info(format!("{} nodes, {} edges", graph.node_count(), graph.edge_count()));
 
         let duration_ms = start.elapsed().as_millis() as u64;
-        timer.stop();
 
         Ok(PipelineResult {
             graph,
@@ -190,22 +182,18 @@ impl Pipeline {
     /// Expected memory: 113GB → 280MB on openclaw (4030 files).
     pub fn run_streaming(&self, root: &Path) -> Result<PipelineResult, crate::core::Error> {
         let start = Instant::now();
-        let timer = Timer::start("Pipeline (Streaming)");
 
         // Scan for source files
-        let scan_timer = Timer::start_nested("File Scanning", "Pipeline");
         let scanner = FileScanner::new().with_max_file_size(self.config.max_file_size);
         let files = scanner.scan(root)?;
         let files_scanned = files.len();
         info!("Scanned {} source files", files_scanned);
-        scan_timer.stop_with_info(format!("{} files", files_scanned));
 
         // Group files by directory for cache locality
         let files = group_by_directory(files);
 
         // Process files in batches
         let batch_size = 500; // Process 500 files at a time
-        let parse_timer = Timer::start_nested("File Parsing (Streaming)", "Pipeline");
         let registry = ParserRegistry::with_defaults()?;
         let builder = GraphBuilder::new()?;
 
@@ -215,12 +203,7 @@ impl Pipeline {
         let mut files_parsed = 0usize;
 
         // Process files in batches
-        for (batch_idx, batch) in files.chunks(batch_size).enumerate() {
-            let batch_timer = Timer::start_nested(
-                format!("Batch {}", batch_idx + 1),
-                "File Parsing (Streaming)",
-            );
-
+        for batch in files.chunks(batch_size) {
             // Parse this batch
             let parse_results: Vec<Result<ParsedFile, (String, String)>> = if self.config.parallel {
                 let chunk_size = compute_chunk_size(batch.len());
@@ -260,27 +243,16 @@ impl Pipeline {
             }
 
             // Memory check
-            let rss = get_rss_mb();
-            batch_timer.stop_with_info(format!(
-                "{} files, total {} parsed, memory: {}MB",
-                batch_parsed.len(),
-                files_parsed,
-                rss
-            ));
+            let _rss = get_rss_mb();
+            // Memory tracking: rss MB available for monitoring if needed
 
             // batch_parsed and batch_graph are dropped here, freeing memory
         }
 
-        parse_timer.stop_with_info(format!("{} files parsed, {} errors", files_parsed, all_errors.len()));
 
         // Note: Unlike the non-streaming version, we're building the graph incrementally
         // and don't store all parsed_files in the result. This saves ~40GB on large projects.
         let duration_ms = start.elapsed().as_millis() as u64;
-        timer.stop_with_info(format!(
-            "{} nodes, {} edges",
-            project_graph.node_count(),
-            project_graph.edge_count()
-        ));
 
         // Return result with empty parsed_files (already processed and dropped)
         // Note: Dead code detector may need the parsed_files for def-use analysis
@@ -313,10 +285,8 @@ impl Pipeline {
         cache_dir: Option<&Path>,
     ) -> Result<PipelineResult, crate::core::Error> {
         let start = Instant::now();
-        let timer = Timer::start("Pipeline (Differential)");
 
         // Get git diff to find changed files
-        let diff_timer = Timer::start_nested("Git Diff Analysis", "Pipeline");
         let diff_output = std::process::Command::new("git")
             .args(&["diff", "--name-status", &format!("{}...HEAD", base_branch)])
             .current_dir(root)
@@ -336,15 +306,12 @@ impl Pipeline {
 
         let changed_files = diff_info.changed_file_strings();
         info!("Detected {} changed file(s)", changed_files.len());
-        diff_timer.stop_with_info(format!("{} files", changed_files.len()));
 
         // Scan for all source files
-        let scan_timer = Timer::start_nested("File Scanning", "Pipeline");
         let scanner = FileScanner::new().with_max_file_size(self.config.max_file_size);
         let all_files = scanner.scan(root)?;
         let files_scanned = all_files.len();
         info!("Scanned {} total source files", files_scanned);
-        scan_timer.stop_with_info(format!("{} files", files_scanned));
 
         // Initialize cache store
         let cache_store = if let Some(dir) = cache_dir {
@@ -372,7 +339,6 @@ impl Pipeline {
         );
 
         // Load cached graph for unchanged files
-        let cache_timer = Timer::start_nested("Cache Loading", "Pipeline");
         let cached_graph = CodeGraph::new();
         let cache_hits = 0;
         let cache_misses = unchanged_source_files.len();
@@ -385,10 +351,8 @@ impl Pipeline {
                 // Cache lookup would happen here
             }
         }
-        cache_timer.stop_with_info(format!("hits: {}, misses: {}", cache_hits, cache_misses));
 
         // Parse changed files only
-        let parse_timer = Timer::start_nested("File Parsing (Changed)", "Pipeline");
         let files_to_parse = group_by_directory(changed_source_files);
         let registry = ParserRegistry::with_defaults()?;
         let parse_results: Vec<Result<ParsedFile, (String, String)>> = if self.config.parallel {
@@ -425,10 +389,8 @@ impl Pipeline {
 
         let files_parsed = parsed_files.len();
         info!("Parsed {} changed files ({} errors)", files_parsed, errors.len());
-        parse_timer.stop_with_info(format!("{} files, {} errors", files_parsed, errors.len()));
 
         // Build graph from changed files
-        let graph_timer = Timer::start_nested("Graph Building (Changed)", "Pipeline");
         let builder = GraphBuilder::new()?;
         let mut fresh_graph = if !parsed_files.is_empty() {
             builder.build_project_graph(&parsed_files)?
@@ -444,14 +406,8 @@ impl Pipeline {
             fresh_graph.node_count(),
             fresh_graph.edge_count()
         );
-        graph_timer.stop_with_info(format!(
-            "{} nodes, {} edges",
-            fresh_graph.node_count(),
-            fresh_graph.edge_count()
-        ));
 
         let duration_ms = start.elapsed().as_millis() as u64;
-        timer.stop_with_info(format!("{}ms", duration_ms));
 
         Ok(PipelineResult {
             graph: fresh_graph,

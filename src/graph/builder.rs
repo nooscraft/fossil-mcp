@@ -137,52 +137,22 @@ impl GraphBuilder {
         parsed_files: &[ParsedFile],
     ) -> Result<CodeGraph, crate::core::Error> {
         let mut project_graph = CodeGraph::new();
-        let timer = crate::core::Timer::start("Building project graph");
 
         // Build per-file graphs and merge
-        for (file_idx, pf) in parsed_files.iter().enumerate() {
+        for pf in parsed_files.iter() {
             let file_graph = self.build_from_parsed_file(pf)?;
             project_graph.merge(&file_graph);
-
-            // Log progress and memory every 100 files
-            if (file_idx + 1) % 100 == 0 {
-                let rss = get_rss_mb();
-                crate::core::trace_msg(format!(
-                    "Merged {} files, nodes: {}, edges: {}, memory: {}MB",
-                    file_idx + 1,
-                    project_graph.node_count(),
-                    project_graph.edge_count(),
-                    rss
-                ));
-            }
         }
-
-        let final_rss = get_rss_mb();
-        timer.stop_with_info(format!(
-            "nodes: {}, edges: {}, memory: {}MB",
-            project_graph.node_count(),
-            project_graph.edge_count(),
-            final_rss
-        ));
 
         // === PHASE 2: Demand-driven filtering - only resolve calls from reachable functions ===
         // Compute intra-file reachability from entry points BEFORE cross-file resolution
         // This allows us to skip resolving calls from unreachable (dead code) functions
-        let dd_timer = crate::core::Timer::start("Demand-driven reachability filtering");
         let intrafile_reachable = project_graph.compute_production_reachable();
         let intrafile_test_reachable = project_graph.compute_test_reachable();
         let all_reachable: std::collections::HashSet<NodeIndex> = intrafile_reachable
             .union(&intrafile_test_reachable)
             .copied()
             .collect();
-
-        crate::core::trace_msg(format!(
-            "Computed intra-file reachability: {} production + {} test = {} total reachable nodes",
-            intrafile_reachable.len(),
-            intrafile_test_reachable.len(),
-            all_reachable.len()
-        ));
-        dd_timer.stop();
 
         // Barrel file suffixes for re-export chain resolution
         let barrel_suffixes = [
@@ -196,9 +166,7 @@ impl GraphBuilder {
         // Build import resolver for file-scoped name resolution
         let resolver = ImportResolver::new(parsed_files);
 
-        // === PHASE 1: Cross-file call resolution with granular timing ===
-        let xfile_timer = crate::core::Timer::start("Cross-file call resolution");
-
+        // === PHASE 1: Cross-file call resolution ===
         // Build barrel re-export cache ONCE to avoid repeated parsing
         // (Phase 2 optimization: eliminate O(files × barrels × lines) re-parsing)
         let mut barrel_cache: std::collections::HashMap<String, Vec<BarrelReexport>> =
@@ -208,10 +176,6 @@ impl GraphBuilder {
                 barrel_cache.insert(pf.path.clone(), extract_barrel_reexports(&pf.source));
             }
         }
-        crate::core::trace_msg(format!(
-            "Built barrel re-export cache: {} barrels cached",
-            barrel_cache.len()
-        ));
 
         // === QUICK WIN: Build barrel ParsedFile index ===
         // (Quick Win optimization: eliminate O(4030) linear scan per barrel lookup)
@@ -222,10 +186,6 @@ impl GraphBuilder {
                 barrel_pf_index.insert(pf.path.clone(), pf);
             }
         }
-        crate::core::trace_msg(format!(
-            "Built barrel ParsedFile index: {} entries",
-            barrel_pf_index.len()
-        ));
 
         // === PHASE 4: Call clustering - resolve identical (source_module, callee_name) calls once ===
         // Cache for resolved clusters: (source_module, callee_name) -> resolved_target_id
@@ -271,21 +231,6 @@ impl GraphBuilder {
                 (std::cmp::Reverse(priority), i)
             })
             .collect();
-
-        // Count reachable callers in worklist for logging
-        let reachable_caller_calls = all_unresolved_calls
-            .iter()
-            .filter(|(call, _, _)| {
-                let caller_idx = project_graph.get_index(call.caller_id);
-                caller_idx.map(|idx| all_reachable.contains(&idx)).unwrap_or(false)
-            })
-            .count();
-
-        crate::core::trace_msg(format!(
-            "Built priority worklist: {} calls ({} from reachable functions), processing demand-driven",
-            worklist.len(),
-            reachable_caller_calls
-        ));
 
         // Resolve cross-file calls using priority worklist
         let mut cross_file_edges = Vec::new();
@@ -482,22 +427,11 @@ impl GraphBuilder {
             }
         }
 
-        // Log clustering impact
-        crate::core::trace_msg(format!(
-            "Call clustering: {} cache hits out of {} total calls ({:.1}% reduction)",
-            clustered_resolutions,
-            total_unresolved_calls,
-            100.0 * clustered_resolutions as f64 / total_unresolved_calls.max(1) as f64
-        ));
-
         for edge in cross_file_edges.iter() {
             let _ = project_graph.add_edge(edge.clone());
         }
 
-        xfile_timer.stop_with_info(format!("{} edges added", cross_file_edges.len()));
-
-        // === PHASE 2: Dispatch edge building with granular timing ===
-        let dispatch_timer = crate::core::Timer::start("Dispatch edge building");
+        // === PHASE 2: Dispatch edge building ===
 
         // Collect method names per class from the graph
         // (Phase 3 optimization: only process method nodes, not all node kinds)
@@ -549,8 +483,6 @@ impl GraphBuilder {
         for edge in dispatch_edges.iter() {
             let _ = project_graph.add_edge(edge.clone());
         }
-
-        dispatch_timer.stop_with_info(format!("{} edges added", dispatch_edges.len()));
 
         Ok(project_graph)
     }

@@ -324,18 +324,6 @@ enum Commands {
         action: RulesAction,
     },
 
-    /// Stress test: measure performance on large projects
-    #[command(name = "stress-test")]
-    StressTest {
-        /// Path to analyze (defaults to current directory)
-        #[arg(default_value = ".")]
-        path: PathBuf,
-
-        /// Compare full vs streaming pipeline approaches
-        #[arg(long)]
-        compare: bool,
-    },
-
     /// Update fossil-mcp to the latest version
     Update {
         /// Check for updates without installing
@@ -457,8 +445,6 @@ pub fn run() {
             RulesAction::List => commands::rules::list(),
             RulesAction::Validate { path } => commands::rules::validate(&path),
         },
-
-        Commands::StressTest { path, compare } => commands::stress_test::run(&path, compare),
 
         Commands::Update { check } => commands::update::run(check),
     };

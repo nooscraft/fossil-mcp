@@ -16,7 +16,6 @@ pub mod pipeline;
 pub mod scanner;
 pub mod sieve_cache;
 pub mod stats;
-pub mod stress_test;
 
 pub use aggregator::Aggregator;
 pub use cache::{AnalysisCache, TwoLevelCache};
@@ -28,4 +27,3 @@ pub use pipeline::{Pipeline, PipelineResult, get_rss_mb};
 pub use scanner::FileScanner;
 pub use sieve_cache::SieveCache;
 pub use stats::CodeGraphStats;
-pub use stress_test::{StressTestRunner, StressTestResult};
