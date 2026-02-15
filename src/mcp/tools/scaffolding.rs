@@ -429,7 +429,7 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                         continue;
                     }
 
-                    // Skip XXX in data format patterns like "XXX-XX-XXXX" (#25)
+                    // Skip triple-X in data format patterns like "NNN-NN-NNNN" placeholders (#25)
                     if m.as_str() == "XXX" {
                         let before_char = if m.start() > 0 {
                             line.chars().nth(m.start() - 1)
@@ -540,8 +540,8 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                         // Deduplicate: skip if this line already has a phased scaffolding_name finding
                         if !phased_name_lines.contains(&(rel_path.clone(), line_num)) {
                             // Check if this looks like a design description vs. scaffolding
-                            // Scaffolding: "Phase 1: Implement", "Phase 1: Basic structure"
-                            // Design: "Phase 1: Lexing", "Phase 1: Fast regex (0-1ms)", "Phase 1: Handshake"
+                            // Scaffolding: "Step N: Implement", "Step N: Basic structure"
+                            // Design: "Step N: Lexing", "Step N: Fast regex (0-1ms)"
                             let lower = comment.to_lowercase();
                             let looks_like_scaffolding = lower.contains("implement")
                                 || lower.contains("build")
@@ -773,10 +773,10 @@ mod tests {
         let file_path = dir.path().join("main.rs");
         let mut f = fs::File::create(&file_path).unwrap();
         writeln!(f, "fn main() {{").unwrap();
-        // Generic "Phase 1: initialization" is NOT flagged — could be legitimate domain
+        // Generic phased comment with domain term is NOT flagged — could be legitimate
         writeln!(f, "    // Phase 1: initialization").unwrap();
         writeln!(f, "    let x = 1;").unwrap();
-        // BUT "Phase 1: Implement basic structure" IS flagged — clear scaffolding
+        // BUT phased comment with "Implement" IS flagged — clear scaffolding
         writeln!(f, "    // Phase 1: Implement basic structure").unwrap();
         writeln!(f, "    let y = x + 1;").unwrap();
         writeln!(f, "}}").unwrap();

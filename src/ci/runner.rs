@@ -3,6 +3,7 @@
 //! The CiRunner coordinates dead code detection, clone detection, and optional
 //! scaffolding detection, then applies threshold evaluation to produce a CheckResult.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::clones::detector::{CloneConfig, CloneDetector};
@@ -47,8 +48,8 @@ impl CiRunner {
         let clone_count = clone_findings.len();
         findings.extend(clone_findings);
 
-        // TODO: Run scaffolding detection (Phase 4)
-        let scaffolding_count = 0;
+        // Run scaffolding detection
+        let scaffolding_count = self.detect_scaffolding(path);
 
         // Apply confidence filter if configured
         if let Some(min_conf) = ThresholdEvaluator::new(self.config.clone()).min_confidence() {
@@ -124,6 +125,45 @@ impl CiRunner {
         }
 
         Ok(findings)
+    }
+
+    /// Run scaffolding detection, returning the number of findings.
+    fn detect_scaffolding(&self, path: &Path) -> usize {
+        let mut args = HashMap::new();
+        args.insert(
+            "path".to_string(),
+            serde_json::Value::String(path.to_string_lossy().to_string()),
+        );
+        // Include phased comments and placeholders, skip TODOs by default
+        args.insert(
+            "include_todos".to_string(),
+            serde_json::Value::Bool(false),
+        );
+        args.insert(
+            "include_placeholders".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        args.insert(
+            "include_phased_comments".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        args.insert(
+            "include_temp_files".to_string(),
+            serde_json::Value::Bool(true),
+        );
+
+        match crate::mcp::tools::scaffolding::execute_detect_scaffolding(&args) {
+            Ok(result) => {
+                // Extract total_findings from the nested JSON response
+                result
+                    .pointer("/content/0/text")
+                    .and_then(|v| v.as_str())
+                    .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                    .and_then(|parsed| parsed.get("total_findings")?.as_u64())
+                    .unwrap_or(0) as usize
+            }
+            Err(_) => 0,
+        }
     }
 
     /// Run clone detection, optionally filtered by diff.

@@ -934,7 +934,7 @@ function formatDataSize(numBytes) {
         // With both type3 and cross-language disabled, no clones should be found
         assert!(
             result.groups.is_empty(),
-            "Disabling cross-language should skip Phase 3"
+            "Disabling cross-language should skip cross-language detection"
         );
     }
 

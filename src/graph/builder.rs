@@ -17,23 +17,23 @@ use super::code_graph::CodeGraph;
 use super::import_resolver::ImportResolver;
 
 /// Compute priority for a call based on resolution confidence, simplicity, and reachability.
-/// Phase 3 optimization: process high-confidence calls first for cache locality.
-/// Phase 2 optimization: prioritize calls from reachable functions (demand-driven).
+/// Processes high-confidence calls first for cache locality and prioritizes
+/// calls from reachable functions (demand-driven).
 fn compute_call_priority(call: &crate::core::UnresolvedCall, is_caller_reachable: bool) -> u32 {
     let mut priority = 0;
 
-    // Phase 2: Reachability-based priority (demand-driven)
+    // Reachability-based priority (demand-driven)
     // Calls from reachable functions have higher priority
     if is_caller_reachable {
         priority += 200; // Highest priority: reachable callers
     }
 
-    // Phase 3: File-scoped calls (has source_module) - higher confidence
+    // File-scoped calls (has source_module) - higher confidence
     if call.source_module.is_some() {
         priority += 100;
     }
 
-    // Phase 3: No import aliasing - simpler resolution, fewer fallbacks
+    // No import aliasing - simpler resolution, fewer fallbacks
     if call.imported_as.is_none() {
         priority += 10;
     }
@@ -143,7 +143,7 @@ impl GraphBuilder {
             project_graph.merge(&file_graph);
         }
 
-        // === PHASE 2: Demand-driven filtering - only resolve calls from reachable functions ===
+        // === Demand-driven filtering - only resolve calls from reachable functions ===
         // Compute intra-file reachability from entry points BEFORE cross-file resolution
         // This allows us to skip resolving calls from unreachable (dead code) functions
         let intrafile_reachable = project_graph.compute_production_reachable();
@@ -165,9 +165,9 @@ impl GraphBuilder {
         // Build import resolver for file-scoped name resolution
         let resolver = ImportResolver::new(parsed_files);
 
-        // === PHASE 1: Cross-file call resolution ===
+        // === Cross-file call resolution ===
         // Build barrel re-export cache ONCE to avoid repeated parsing
-        // (Phase 2 optimization: eliminate O(files × barrels × lines) re-parsing)
+        // (eliminates O(files × barrels × lines) re-parsing)
         let mut barrel_cache: std::collections::HashMap<String, Vec<BarrelReexport>> =
             std::collections::HashMap::new();
         for pf in parsed_files {
@@ -186,11 +186,11 @@ impl GraphBuilder {
             }
         }
 
-        // === PHASE 4: Call clustering - resolve identical (source_module, callee_name) calls once ===
+        // === Call clustering - resolve identical (source_module, callee_name) calls once ===
         // Cache for resolved clusters: (source_module, callee_name) -> resolved_target_id
         let mut resolution_cache: HashMap<(Option<String>, String), Option<NodeId>> = HashMap::new();
 
-        // === PHASE 3: Build priority worklist for high-confidence calls ===
+        // === Build priority worklist for high-confidence calls ===
         // Collect all unresolved calls with caller file context
         let mut caller_file_map: HashMap<NodeId, String> = HashMap::new();
         for pf in parsed_files {
@@ -206,9 +206,8 @@ impl GraphBuilder {
             .sum();
 
         // Collect all unresolved calls with their caller files for priority-based worklist
-        // === PHASE 2: Use reachability info for smart prioritization ===
-        // Note: We resolve ALL calls, but prioritize calls from reachable functions
-        // This is "demand-driven" in that we demand resolution for high-value calls first
+        // Use reachability info for smart prioritization
+        // We resolve ALL calls, but prioritize calls from reachable functions first
         let mut all_unresolved_calls: Vec<(&crate::core::UnresolvedCall, String, Language)> = Vec::new();
         for pf in parsed_files {
             for unresolved in &pf.unresolved_calls {
@@ -218,7 +217,7 @@ impl GraphBuilder {
 
         // Build priority worklist (BinaryHeap for efficient max-priority extraction)
         // Store (priority, index) pairs to look up calls separately
-        // === PHASE 2: Include reachability info in priority computation ===
+        // Include reachability info in priority computation
         let mut worklist: BinaryHeap<(std::cmp::Reverse<u32>, usize)> = all_unresolved_calls
             .iter()
             .enumerate()
@@ -242,7 +241,7 @@ impl GraphBuilder {
                     .as_deref()
                     .unwrap_or(&unresolved.callee_name);
 
-                // === PHASE 4: Check if this (source_module, callee_name) has already been resolved ===
+                // Check if this (source_module, callee_name) cluster has already been resolved
                 let cluster_key = (unresolved.source_module.clone(), callee_name.to_string());
                 if let Some(cached_result) = resolution_cache.get(&cluster_key) {
                     // Reuse cached resolution without repeating the work
@@ -418,7 +417,7 @@ impl GraphBuilder {
                     }
                 }
 
-            // === PHASE 4: Update cache with resolved target for this (source_module, callee_name) cluster ===
+            // Update cache with resolved target for this (source_module, callee_name) cluster
             // Only cache file-scoped resolutions (those with source_module)
             // Global resolutions can have multiple targets, so we skip caching those
             if unresolved.source_module.is_some() {
@@ -430,10 +429,10 @@ impl GraphBuilder {
             let _ = project_graph.add_edge(edge.clone());
         }
 
-        // === PHASE 2: Dispatch edge building ===
+        // === Dispatch edge building ===
 
         // Collect method names per class from the graph
-        // (Phase 3 optimization: only process method nodes, not all node kinds)
+        // (optimization: only process method nodes, not all node kinds)
         let mut class_methods: HashMap<String, HashSet<String>> = HashMap::new();
         for (_, node) in project_graph.nodes() {
             // Only process method/constructor nodes (not functions, variables, etc.)

@@ -17,7 +17,7 @@ use petgraph::Direction;
 /// 1. edge_dedup_filter: for edge deduplication during graph construction,
 ///    reducing duplicate edge insertion memory from 1.6MB to ~120KB
 /// 2. file_name_filter: for fast membership testing of (file, name) pairs,
-///    reducing lookups by 50-80% in cross-file call resolution (Phase 1 optimization)
+///    reducing lookups by 50-80% in cross-file call resolution
 #[derive(Debug)]
 pub struct CodeGraph {
     graph: DiGraph<CodeNode, CallEdge>,
@@ -41,7 +41,7 @@ impl CodeGraph {
     pub fn new() -> Self {
         // Initialize Bloom filters with expected sizes and 1% false positive rate
         // edge_dedup_filter: reduces edge cache memory from 1.6MB to ~120KB (13× reduction)
-        // file_name_filter: reduces cross-file lookups by 50-80% (Phase 1 optimization)
+        // file_name_filter: reduces cross-file lookups by 50-80%
         let edge_dedup_filter = BloomFilter::new(100_000, 0.01);
         let file_name_filter = BloomFilter::new(50_000, 0.01);
 
@@ -183,7 +183,7 @@ impl CodeGraph {
 
     /// Find a node by name scoped to a specific file.
     /// O(1) complexity via lazy-built file_name_index (first call builds index).
-    /// Also populates Bloom filter for fast membership testing (Phase 1 optimization).
+    /// Also populates Bloom filter for fast membership testing.
     pub fn find_node_by_name_in_file(&self, name: &str, file: &str) -> Option<NodeIndex> {
         // Ensure index is built
         self.ensure_file_name_index_built();
@@ -198,7 +198,7 @@ impl CodeGraph {
     }
 
     /// Find a node by name scoped to any of the given candidate files.
-    /// Uses Bloom filter pre-filter to skip impossible lookups (Phase 1 optimization).
+    /// Uses Bloom filter pre-filter to skip impossible lookups.
     /// Bloom filter reduces lookups by 50-80% with 0% false negatives (0% missed matches).
     pub fn find_node_by_name_in_files(&self, name: &str, files: &[String]) -> Option<NodeIndex> {
         // Ensure index and filter are built before using them
@@ -209,7 +209,7 @@ impl CodeGraph {
         let index = index_ref.as_ref().unwrap();
 
         for file in files {
-            // Phase 1 Optimization: Pre-filter check using Bloom filter
+            // Pre-filter check using Bloom filter
             // If Bloom filter says "definitely NOT present", skip expensive HashMap lookup
             let filter_key = format!("{}:{}", file, name);
             if !filter.contains(filter_key.as_bytes()) {
