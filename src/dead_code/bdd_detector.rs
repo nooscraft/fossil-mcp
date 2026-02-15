@@ -149,11 +149,36 @@ impl BddContextDetector {
             || name_lower.starts_with("handle")
             // *listener pattern (messageListener, errorListener, etc.)
             || name_lower.ends_with("listener")
+            // Swift delegate method patterns (called by frameworks, not user code)
+            || Self::is_swift_delegate_method(node)
             // Check attributes
             || node
                 .attributes
                 .iter()
                 .any(|attr| EVENT_ATTR_PATTERNS().is_match(attr))
+    }
+
+    /// Swift delegate methods follow naming conventions like `Did`, `Will`, `Should`
+    /// (e.g., `applicationDidFinishLaunching`, `locationManagerDidChangeAuthorization`).
+    /// These are called by Apple frameworks via protocol conformance, not directly.
+    fn is_swift_delegate_method(node: &CodeNode) -> bool {
+        if node.language != crate::core::Language::Swift {
+            return false;
+        }
+        let name = &node.name;
+        // Cocoa delegate naming conventions: contains Did/Will/Should
+        name.contains("Did")
+            || name.contains("Will")
+            || name.contains("Should")
+            // Common delegate prefixes for specific Apple frameworks
+            || name.starts_with("locationManager")
+            || name.starts_with("webView")
+            || name.starts_with("tableView")
+            || name.starts_with("collectionView")
+            || name.starts_with("photoOutput")
+            || name.starts_with("audioPlayer")
+            || name.starts_with("urlSession")
+            || name.starts_with("mapView")
     }
 
     /// Check if function is exported for external use
@@ -473,6 +498,84 @@ mod tests {
             markers.contains(&BehaviorMarker::ConfigDriven),
             "migrate should have ConfigDriven marker. Markers: {:?}",
             markers
+        );
+    }
+
+    fn make_swift_node(name: &str, attrs: Vec<&str>) -> CodeNode {
+        CodeNode {
+            id: crate::core::NodeId::from_u32(1),
+            name: name.to_string(),
+            full_name: format!("test.{}", name),
+            kind: NodeKind::Function,
+            location: crate::core::SourceLocation {
+                file: "test.swift".to_string(),
+                line_start: 1,
+                line_end: 10,
+                column_start: 0,
+                column_end: 0,
+            },
+            language: crate::core::Language::Swift,
+            visibility: crate::core::Visibility::Public,
+            lines_of_code: 5,
+            parent_id: None,
+            is_async: false,
+            is_test: false,
+            is_generated: false,
+            attributes: attrs.iter().map(|s| s.to_string()).collect(),
+            documentation: None,
+        }
+    }
+
+    #[test]
+    fn test_swift_delegate_method_detection() {
+        // Did/Will/Should patterns
+        for name in &[
+            "applicationDidFinishLaunching",
+            "applicationWillTerminate",
+            "applicationShouldTerminate",
+            "locationManagerDidChangeAuthorization",
+            "windowDidLoad",
+            "scrollViewDidScroll",
+        ] {
+            let node = make_swift_node(name, vec![]);
+            assert!(
+                BddContextDetector::is_event_handler(&node),
+                "Swift delegate method '{}' should be detected as event handler",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_swift_framework_delegate_prefixes() {
+        for name in &[
+            "locationManagerDidUpdateLocations",
+            "webViewDidFinishNavigation",
+            "tableViewDidSelectRow",
+            "collectionViewDidSelectItem",
+            "urlSessionDidBecomeInvalid",
+            "mapViewDidChangeVisibleRegion",
+        ] {
+            let node = make_swift_node(name, vec![]);
+            assert!(
+                BddContextDetector::is_event_handler(&node),
+                "Swift delegate '{}' should be detected",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_non_swift_did_not_delegate() {
+        // "Did" in a non-Swift node should NOT trigger the Swift delegate check
+        let node = make_node("applicationDidFinishLaunching", vec![]);
+        // This is a Rust node (from make_node), not Swift, so it should NOT
+        // match the Swift delegate pattern — but it may match other patterns
+        // because "handle" is a substring. The point is that it doesn't hit
+        // is_swift_delegate_method specifically.
+        assert!(
+            !BddContextDetector::is_swift_delegate_method(&node),
+            "Rust node should NOT be detected as Swift delegate"
         );
     }
 

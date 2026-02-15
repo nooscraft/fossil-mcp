@@ -2425,6 +2425,131 @@ fn detect_clones_with_filter(
 }
 
 // =====================================================================
+// Swift FP Reduction Tests
+// =====================================================================
+
+#[test]
+fn test_swift_coding_keys_not_dead() {
+    let dir = TempDir::new().unwrap();
+
+    fs::write(
+        dir.path().join("Models.swift"),
+        r#"import Foundation
+
+struct User: Codable {
+    let name: String
+    let email: String
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case email = "email_address"
+    }
+}
+
+func main() {
+    let user = User(name: "Alice", email: "alice@example.com")
+    print(user)
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+    assert!(
+        !dead_names.contains(&"CodingKeys".to_string()),
+        "Swift CodingKeys should NOT be dead (required by Codable protocol). Dead: {:?}",
+        dead_names
+    );
+}
+
+#[test]
+fn test_swift_appkit_lifecycle_not_dead() {
+    let dir = TempDir::new().unwrap();
+
+    fs::write(
+        dir.path().join("AppDelegate.swift"),
+        r#"import AppKit
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        print("App launched")
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        print("App terminating")
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return true
+    }
+
+    func unusedHelper() {
+        print("unused")
+    }
+}
+
+func main() {
+    let delegate = AppDelegate()
+    print(delegate)
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+    // AppKit lifecycle methods should NOT be dead (detected via preset + BDD delegate pattern)
+    assert!(
+        !dead_names.contains(&"applicationDidFinishLaunching".to_string()),
+        "applicationDidFinishLaunching should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+    assert!(
+        !dead_names.contains(&"applicationWillTerminate".to_string()),
+        "applicationWillTerminate should NOT be dead. Dead: {:?}",
+        dead_names
+    );
+}
+
+#[test]
+fn test_swift_swiftui_preset_auto_detect() {
+    let dir = TempDir::new().unwrap();
+
+    fs::write(
+        dir.path().join("ContentView.swift"),
+        r#"import SwiftUI
+
+struct ContentView: View {
+    var body: some View {
+        Text("Hello World")
+    }
+
+    func onAppear() {
+        print("appeared")
+    }
+
+    func unusedMethod() {
+        print("unused")
+    }
+}
+
+func main() {
+    let view = ContentView()
+    print(view)
+}
+"#,
+    )
+    .unwrap();
+
+    let dead_names = detect_dead_names(&dir);
+    // SwiftUI preset should auto-detect from `import SwiftUI` and mark lifecycle methods alive
+    assert!(
+        !dead_names.contains(&"body".to_string()),
+        "SwiftUI body should NOT be dead (lifecycle method). Dead: {:?}",
+        dead_names
+    );
+}
+
+// =====================================================================
 // FP Reduction v0.1.4 Tests
 // =====================================================================
 

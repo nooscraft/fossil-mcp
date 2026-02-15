@@ -409,6 +409,78 @@ static PRESETS: &[Preset] = &[
             "setorder",
         ],
     },
+    // Swift: SwiftUI framework
+    Preset {
+        name: "swiftui",
+        detect_files: &[],
+        detect_deps: &["SwiftUI"],
+        entry_attributes: &["main", "UIApplicationMain", "NSApplicationMain"],
+        entry_functions: &[],
+        lifecycle_methods: &[
+            "body",
+            "makeBody",
+            "makeNSView",
+            "updateNSView",
+            "makeNSViewController",
+            "updateNSViewController",
+            "makeUIView",
+            "updateUIView",
+            "makeUIViewController",
+            "updateUIViewController",
+            "makeCoordinator",
+            "onAppear",
+            "onDisappear",
+            "task",
+        ],
+    },
+    // Swift: UIKit framework
+    Preset {
+        name: "uikit",
+        detect_files: &[],
+        detect_deps: &["UIKit"],
+        entry_attributes: &["IBAction", "IBOutlet", "objc"],
+        entry_functions: &[],
+        lifecycle_methods: &[
+            "viewDidLoad",
+            "viewWillAppear",
+            "viewDidAppear",
+            "viewWillDisappear",
+            "viewDidDisappear",
+            "viewDidLayoutSubviews",
+            "viewWillLayoutSubviews",
+            "didReceiveMemoryWarning",
+            "prepare",
+        ],
+    },
+    // Swift: AppKit/Cocoa framework
+    Preset {
+        name: "appkit",
+        detect_files: &[],
+        detect_deps: &["AppKit", "Cocoa"],
+        entry_attributes: &["IBAction", "IBOutlet", "objc"],
+        entry_functions: &[],
+        lifecycle_methods: &[
+            "applicationDidFinishLaunching",
+            "applicationWillTerminate",
+            "applicationShouldTerminate",
+            "applicationShouldTerminateAfterLastWindowClosed",
+            "windowDidLoad",
+            "windowWillClose",
+            "windowDidMove",
+            "windowDidResize",
+            "windowDidEndLiveResize",
+            "awakeFromNib",
+            "acceptsFirstMouse",
+            "mouseDown",
+            "mouseUp",
+            "mouseMoved",
+            "mouseDragged",
+            "keyDown",
+            "keyUp",
+            "menuWillOpen",
+            "menuDidClose",
+        ],
+    },
     // Zustand state management
     Preset {
         name: "zustand",
@@ -500,6 +572,20 @@ pub fn auto_detect_presets(root: &Path) -> Vec<String> {
                 }
             }
         }
+
+        // Check Package.swift for Swift deps (import scanning)
+        if !preset.detect_deps.is_empty() {
+            if let Some(deps) = read_package_swift_deps(root) {
+                if preset
+                    .detect_deps
+                    .iter()
+                    .any(|d| deps.contains(&d.to_string()))
+                {
+                    active.push(preset.name.to_string());
+                    continue;
+                }
+            }
+        }
     }
 
     active
@@ -558,6 +644,100 @@ fn read_description_deps(root: &Path) -> Option<Vec<String>> {
         None
     } else {
         Some(deps)
+    }
+}
+
+/// Read framework imports from Package.swift or Swift source files.
+/// Checks for `import SwiftUI`, `import UIKit`, `import AppKit`, etc.
+fn read_package_swift_deps(root: &Path) -> Option<Vec<String>> {
+    let mut deps = Vec::new();
+
+    // Check Package.swift for SPM dependencies
+    let pkg_path = root.join("Package.swift");
+    if let Ok(content) = std::fs::read_to_string(&pkg_path) {
+        // Look for .package(url: "...SwiftUI...") or common dep patterns
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.contains(".product(name:") {
+                // .product(name: "SwiftUI", package: "...")
+                if let Some(start) = trimmed.find("name:") {
+                    let after = &trimmed[start + 5..];
+                    let name = after
+                        .trim()
+                        .trim_start_matches('"')
+                        .split('"')
+                        .next()
+                        .unwrap_or("")
+                        .trim();
+                    if !name.is_empty() {
+                        deps.push(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // Scan Swift source files for import statements (top-level framework imports)
+    // This catches `import SwiftUI`, `import UIKit`, `import AppKit`, etc.
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("swift") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    for line in content.lines().take(50) {
+                        // Only check first 50 lines per file
+                        let trimmed = line.trim();
+                        if let Some(rest) = trimmed.strip_prefix("import ") {
+                            let module = rest.trim().split('.').next().unwrap_or("").trim();
+                            if !module.is_empty() && !deps.contains(&module.to_string()) {
+                                deps.push(module.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Also scan subdirectories one level deep (Sources/, src/)
+    for subdir in &["Sources", "src"] {
+        let sub_path = root.join(subdir);
+        if sub_path.is_dir() {
+            scan_swift_imports(&sub_path, &mut deps, 2);
+        }
+    }
+
+    if deps.is_empty() {
+        None
+    } else {
+        Some(deps)
+    }
+}
+
+/// Recursively scan Swift files for import statements up to a given depth.
+fn scan_swift_imports(dir: &Path, deps: &mut Vec<String>, max_depth: usize) {
+    if max_depth == 0 {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                scan_swift_imports(&path, deps, max_depth - 1);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("swift") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    for line in content.lines().take(50) {
+                        let trimmed = line.trim();
+                        if let Some(rest) = trimmed.strip_prefix("import ") {
+                            let module = rest.trim().split('.').next().unwrap_or("").trim();
+                            if !module.is_empty() && !deps.contains(&module.to_string()) {
+                                deps.push(module.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

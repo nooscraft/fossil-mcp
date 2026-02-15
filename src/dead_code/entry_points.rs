@@ -89,6 +89,7 @@ impl<'a> EntryPointDetector<'a> {
             || self.is_exported_entry(node)
             || self.is_framework_entry(node)
             || self.is_python_dunder(node)
+            || self.is_swift_coding_keys(node)
     }
 
     fn is_main_function(&self, node: &CodeNode) -> bool {
@@ -151,6 +152,19 @@ impl<'a> EntryPointDetector<'a> {
             return true;
         }
 
+        // Swift runtime-dispatched attributes — methods with these are called
+        // via Objective-C runtime or Interface Builder, invisible to static analysis
+        if node.language == crate::core::Language::Swift
+            && node.attributes.iter().any(|attr| {
+                matches!(
+                    attr.as_str(),
+                    "objc" | "IBAction" | "IBOutlet" | "IBDesignable" | "IBInspectable" | "NSManaged"
+                )
+            })
+        {
+            return true;
+        }
+
         // Check attributes against resolved rules
         let has_framework_attr = node.attributes.iter().any(|attr| {
             self.rules.matches_attribute(attr)
@@ -207,6 +221,12 @@ impl<'a> EntryPointDetector<'a> {
                 node.kind,
                 NodeKind::Function | NodeKind::Method | NodeKind::AsyncFunction | NodeKind::AsyncMethod
             )
+    }
+
+    /// Swift CodingKeys enums are required by the Codable protocol for JSON
+    /// serialization. They are always used implicitly by the Swift runtime.
+    fn is_swift_coding_keys(&self, node: &CodeNode) -> bool {
+        node.language == crate::core::Language::Swift && node.name == "CodingKeys"
     }
 
     fn is_test_entry(&self, node: &CodeNode) -> bool {
@@ -1000,6 +1020,91 @@ mod tests {
             entries.is_empty(),
             "Rust function with 'property' attr should NOT be a Python decorator entry point"
         );
+    }
+
+    fn make_swift_node(name: &str, kind: NodeKind, vis: Visibility) -> CodeNode {
+        CodeNode::new(
+            name.to_string(),
+            kind,
+            SourceLocation::new("test.swift".to_string(), 1, 10, 0, 0),
+            Language::Swift,
+            vis,
+        )
+    }
+
+    fn make_swift_node_with_attrs(
+        name: &str,
+        kind: NodeKind,
+        vis: Visibility,
+        attrs: Vec<&str>,
+    ) -> CodeNode {
+        CodeNode::new(
+            name.to_string(),
+            kind,
+            SourceLocation::new("test.swift".to_string(), 1, 10, 0, 0),
+            Language::Swift,
+            vis,
+        )
+        .with_attributes(attrs.into_iter().map(|s| s.to_string()).collect())
+    }
+
+    #[test]
+    fn test_swift_coding_keys_is_entry_point() {
+        let mut graph = CodeGraph::new();
+        graph.add_node(make_swift_node(
+            "CodingKeys",
+            NodeKind::Struct, // enums are Struct in our model
+            Visibility::Private,
+        ));
+
+        let detector = EntryPointDetector::new(&graph);
+        let entries = detector.detect_production_entry_points();
+        assert!(
+            !entries.is_empty(),
+            "Swift CodingKeys should be detected as entry point"
+        );
+    }
+
+    #[test]
+    fn test_rust_coding_keys_not_entry_point() {
+        // "CodingKeys" in Rust should NOT trigger Swift entry point
+        let mut graph = CodeGraph::new();
+        graph.add_node(CodeNode::new(
+            "CodingKeys".to_string(),
+            NodeKind::Struct,
+            SourceLocation::new("test.rs".to_string(), 1, 10, 0, 0),
+            Language::Rust,
+            Visibility::Private,
+        ));
+
+        let detector = EntryPointDetector::new(&graph);
+        let entries = detector.detect_production_entry_points();
+        assert!(
+            entries.is_empty(),
+            "Rust 'CodingKeys' should NOT be a Swift entry point. Entries: {:?}",
+            entries
+        );
+    }
+
+    #[test]
+    fn test_swift_objc_is_framework_entry() {
+        for attr in &["objc", "IBAction", "IBOutlet", "IBDesignable", "IBInspectable", "NSManaged"] {
+            let mut graph = CodeGraph::new();
+            graph.add_node(make_swift_node_with_attrs(
+                "someMethod",
+                NodeKind::Function,
+                Visibility::Public,
+                vec![attr],
+            ));
+
+            let detector = EntryPointDetector::new(&graph);
+            let entries = detector.detect_production_entry_points();
+            assert!(
+                !entries.is_empty(),
+                "Swift @{} should be detected as entry point",
+                attr
+            );
+        }
     }
 
     #[test]

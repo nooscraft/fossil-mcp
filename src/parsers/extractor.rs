@@ -595,6 +595,9 @@ fn collect_attributes(
                 crate::core::Language::TypeScript | crate::core::Language::JavaScript => {
                     collect_typescript_decorators(node, source, &mut attrs);
                 }
+                crate::core::Language::Swift => {
+                    collect_swift_attributes(node, source, &mut attrs);
+                }
                 _ => {}
             }
 
@@ -967,6 +970,64 @@ fn collect_typescript_decorators(node: tree_sitter::Node, source: &str, attrs: &
                 .trim();
             normalize_ts_decorator(name, attrs);
         } else if !matches!(sib.kind(), "comment" | "line_comment" | "block_comment") {
+            break;
+        }
+        sibling = sib.prev_sibling();
+    }
+}
+
+/// Collect Swift attributes from the `modifiers` child of a declaration node.
+/// In tree-sitter-swift, attributes are in: declaration → modifiers → attribute → user_type.
+fn collect_swift_attributes(node: tree_sitter::Node, source: &str, attrs: &mut Vec<String>) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "modifiers" {
+            let mut mod_cursor = child.walk();
+            for mod_child in child.children(&mut mod_cursor) {
+                if mod_child.kind() == "attribute" {
+                    // Extract the attribute name from text, stripping @ and arguments
+                    let text = source[mod_child.byte_range()].trim();
+                    let name = text
+                        .trim_start_matches('@')
+                        .split('(')
+                        .next()
+                        .unwrap_or("")
+                        .trim();
+                    if !name.is_empty() {
+                        attrs.push(name.to_string());
+                    }
+                }
+            }
+        }
+        // Also check direct attribute children (some grammar variants)
+        if child.kind() == "attribute" {
+            let text = source[child.byte_range()].trim();
+            let name = text
+                .trim_start_matches('@')
+                .split('(')
+                .next()
+                .unwrap_or("")
+                .trim();
+            if !name.is_empty() {
+                attrs.push(name.to_string());
+            }
+        }
+    }
+    // Check preceding siblings too (for standalone attribute nodes before declarations)
+    let mut sibling = node.prev_sibling();
+    while let Some(sib) = sibling {
+        if sib.kind() == "attribute" {
+            let text = source[sib.byte_range()].trim();
+            let name = text
+                .trim_start_matches('@')
+                .split('(')
+                .next()
+                .unwrap_or("")
+                .trim();
+            if !name.is_empty() {
+                attrs.push(name.to_string());
+            }
+        } else if sib.kind() != "comment" && sib.kind() != "multiline_comment" {
             break;
         }
         sibling = sib.prev_sibling();
@@ -1397,6 +1458,62 @@ fn collect_class_hierarchy(
             }
             // Note: trait definitions are extracted as nodes by extract_functions
             // (trait_item is in is_class_def), so ClassHierarchy registers them as types.
+        }
+        crate::core::Language::Swift => {
+            // Swift class_declaration covers class, struct, enum, actor, extension
+            if kind == "class_declaration" {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let class_name = source[name_node.byte_range()].to_string();
+                    let mut parents = Vec::new();
+                    // Walk children for inheritance specifiers
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        // tree-sitter-swift uses type_identifier children after ":"
+                        // in the inheritance clause. Look for user_type or type_identifier
+                        // within inheritance-related nodes.
+                        if child.kind() == "inheritance_specifier"
+                            || child.kind() == "type_identifier"
+                            || child.kind() == "user_type"
+                        {
+                            let text = source[child.byte_range()].trim().to_string();
+                            // Strip generics if present: "Comparable<T>" → "Comparable"
+                            let base = text.split('<').next().unwrap_or(&text).trim();
+                            if !base.is_empty() && base != ":" {
+                                parents.push(base.to_string());
+                            }
+                        }
+                    }
+                    // Also check if there's an inheritance clause via ":"
+                    // Some grammars put protocols in a comma-separated list after ":"
+                    if parents.is_empty() {
+                        // Fallback: scan the node text for ": Protocol1, Protocol2"
+                        let node_text = source[node.byte_range()].to_string();
+                        if let Some(colon_pos) = node_text.find(':') {
+                            let after_colon = &node_text[colon_pos + 1..];
+                            // Take everything before the first '{' (body start)
+                            let before_brace = after_colon
+                                .split('{')
+                                .next()
+                                .unwrap_or(after_colon)
+                                .trim();
+                            for parent in before_brace.split(',') {
+                                let name = parent
+                                    .trim()
+                                    .split('<')
+                                    .next()
+                                    .unwrap_or("")
+                                    .trim();
+                                if !name.is_empty() {
+                                    parents.push(name.to_string());
+                                }
+                            }
+                        }
+                    }
+                    if !parents.is_empty() {
+                        results.push((class_name, parents, line));
+                    }
+                }
+            }
         }
         // Go/others don't have class inheritance
         _ => {}
