@@ -66,8 +66,8 @@ dashmap = "6.1"
 sha2 = "0.10"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
-# Probabilistic data structures (local version for BloomFilter and other structs)
-sketch_oxide = { path = "../sketch_oxide/sketch_oxide" }
+# Probabilistic data structures
+sketch_oxide = "0.1.6"
 
 # Concurrency
 rayon = "1.8"
