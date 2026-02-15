@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-02-15
+
+### Added
+
+- **False positive reduction: 14 targeted detection improvements**
+  - Benchmark directory support: `benches/` and `benchmarks/` recognized as test context (47 FPs)
+  - PyO3 `#[pymethods]` impl-block attribute propagation to child methods (64 FPs)
+  - Public structs, traits, and enums in library crates recognized as exported entry points (21 FPs)
+  - Next.js App Router convention files (`page.tsx`, `layout.tsx`, `route.ts`, etc.) as entry points
+  - Python `__init__.py` `__all__` and re-export detection
+  - Python `pyproject.toml` `console_scripts` entry point detection
+  - `package.json` `exports`/`module` public API module detection
+  - Python dunder methods (`__call__`, `__repr__`, `__getattr__`, etc.) as entry points
+  - Python `@property`/`@staticmethod`/`@classmethod`/`@abstractmethod` as framework entries
+  - Lowercase DOM/SSE event handlers (`onopen`, `onmessage`, `onerror`, `onclose`)
+  - ConfigDriven BDD marker for config-wired functions (`migrate`, `serialize`, etc.)
+
+- **Swift false positive reduction: 6 targeted improvements**
+  - `CodingKeys` entry point detection for Codable protocol (216 FPs)
+  - Swift attribute extraction (`@objc`, `@IBAction`, `@IBOutlet`, `@NSManaged`, etc.)
+  - Swift class hierarchy for protocol conformance (`extends:` propagation)
+  - SwiftUI, UIKit, AppKit framework presets with lifecycle methods
+  - Swift delegate pattern detection (`Did`/`Will`/`Should` conventions)
+  - `Package.swift` and import statement scanning for preset auto-detection
+
+- **State management presets**
+  - Zustand preset with store lifecycle methods (`create`, `set`, `get`, `subscribe`, etc.)
+  - Redux preset with action creators, reducers, middleware, selectors
+
+- **BDD context-sensitive dead code detection**
+  - BddContextDetector integrated into DeadCodeClassifier
+  - Detects 10 behavior marker categories: callbacks, event handlers, middleware, lifecycle methods, factory methods, plugin registration, dynamic dispatch, public exports, lazy loading
+  - Functions with behavior markers downgraded to low confidence instead of flagged as dead
+  - ~10-15% additional false positive reduction on projects with dynamic patterns
+
+- **Feature flag detection**
+  - FeatureFlagDetector integrated into dead code analysis pipeline
+  - Detects always-dead feature flag blocks: Rust `#[cfg]`, C/C++ `#if 0`, Python `if False:`, JS/TS `process.env.FEATURE`
+  - Filters findings in statically-dead feature flag regions to prevent false positives
+
+- **Scaffolding detection in CI runner**
+  - CI `check` command now runs scaffolding detection (phased comments, placeholders, temp files)
+  - Scaffolding count included in threshold evaluation alongside dead code and clones
+
+### Changed
+
+- **Graph building performance: 16-45× speedup on large projects**
+  - Barrel re-export cache: parse barrel files once instead of per-call (15× fewer line scans)
+  - HashMap index for barrel file lookup (O(1) instead of O(n) linear scan)
+  - Bloom filter pre-filtering for cross-file name lookups (50-80% of lookups skipped)
+  - Call clustering cache for repeated (module, name) resolutions (5-10× fewer operations)
+  - Priority worklist processing high-confidence calls first for better cache locality
+  - Demand-driven resolution prioritizing reachable calls over dead code paths
+  - Dispatch edge building filtered to only Method/Constructor nodes (70% fewer nodes processed)
+- Dead store detection disabled by default for 2.5× performance improvement
+- Node lookup optimized with O(1) file-name index (was O(n) linear scan)
+- Serde attribute lookup optimized from O(n²) to O(n) with HashSet cache
+- RTA fixed-point iteration made incremental (only re-process newly discovered methods)
+- Removed all trace logging and timer instrumentation from production code
+- Cleaned up internal scaffolding artifacts (phased comments, Phase N labels)
+
+### Fixed
+
+- Zero compiler warnings in release build
+- Lazy index building to reduce memory overhead during graph construction
+
+[0.1.4]: https://github.com/yfedoseev/fossil-mcp/compare/v0.1.3...v0.1.4
+
 ## [0.1.3] - 2025-02-12
 
 ### Added

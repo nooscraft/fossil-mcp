@@ -80,14 +80,14 @@ curl -L https://github.com/yfedoseev/fossil-mcp/releases/latest/download/fossil-
 mv fossil-mcp /usr/local/bin/
 
 # Linux (x86_64)
-curl -L https://github.com/yfedoseev/fossil-mcp/releases/latest/download/fossil-mcp-linux-x86_64.tar.gz | tar xz
+curl -L https://github.com/yfedoseev/fossil-mcp/releases/latest/download/fossil-mcp-linux-x86_64-musl.tar.gz | tar xz
 mv fossil-mcp ~/.local/bin/
 ```
 
 | Platform | Architecture | Archive |
 |----------|-------------|---------|
+| Linux | x86_64 (recommended) | `fossil-mcp-linux-x86_64-musl` |
 | Linux | x86_64 (glibc) | `fossil-mcp-linux-x86_64` |
-| Linux | x86_64 (musl) | `fossil-mcp-linux-x86_64-musl` |
 | Linux | ARM64 | `fossil-mcp-linux-aarch64` |
 | macOS | Intel | `fossil-mcp-macos-x86_64` |
 | macOS | Apple Silicon | `fossil-mcp-macos-aarch64` |
