@@ -132,7 +132,7 @@ impl Detector {
         }
 
         // Compute reachability
-        let rta_mode = if self.config.use_rta { "with RTA" } else { "BFS" };
+        let _rta_mode = if self.config.use_rta { "with RTA" } else { "BFS" };
         let production_reachable = if self.config.use_rta {
             Self::compute_reachable_with_rta(graph, &production_entries)
         } else {

@@ -9,9 +9,14 @@
 //! - Configuration-driven selection
 //! - Lazy initialization
 
-use crate::core::{CodeNode, NodeKind};
+#![allow(non_snake_case)]
+
+use crate::core::CodeNode;
 use regex::Regex;
 use std::sync::OnceLock;
+
+#[cfg(test)]
+use crate::core::NodeKind;
 
 /// Behavior markers that indicate a function is actually in use despite
 /// appearing unreachable in static analysis.

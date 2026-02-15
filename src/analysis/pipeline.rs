@@ -340,8 +340,8 @@ impl Pipeline {
 
         // Load cached graph for unchanged files
         let cached_graph = CodeGraph::new();
-        let cache_hits = 0;
-        let cache_misses = unchanged_source_files.len();
+        let _cache_hits = 0;
+        let _cache_misses = unchanged_source_files.len();
 
         if let Some(ref _store) = cache_store {
             // Note: In a full implementation, would load cached analysis results here

@@ -10,7 +10,6 @@ use crate::core::{
     CallEdge, CodeNode, EdgeConfidence, Language, NodeId, NodeKind, ParsedFile, SourceLocation,
     Visibility,
 };
-use crate::analysis::get_rss_mb;
 use crate::parsers::{extract_calls, extract_functions, ParserRegistry, ZeroCopyParseTree};
 use petgraph::graph::NodeIndex;
 
@@ -201,7 +200,7 @@ impl GraphBuilder {
         }
 
         // Count total calls before worklist optimization
-        let total_unresolved_calls: usize = parsed_files
+        let _total_unresolved_calls: usize = parsed_files
             .iter()
             .map(|pf| pf.unresolved_calls.len())
             .sum();
@@ -234,7 +233,7 @@ impl GraphBuilder {
 
         // Resolve cross-file calls using priority worklist
         let mut cross_file_edges = Vec::new();
-        let mut clustered_resolutions = 0;
+        let mut _clustered_resolutions = 0;
         while let Some((_, call_index)) = worklist.pop() {
             let (unresolved, caller_file, caller_lang) = &all_unresolved_calls[call_index];
                 // Try the imported_as name first, then fall back to callee_name
@@ -253,7 +252,7 @@ impl GraphBuilder {
                             resolved_id.clone(),
                             EdgeConfidence::HighLikely,
                         ));
-                        clustered_resolutions += 1;
+                        _clustered_resolutions += 1;
                     }
                     continue; // Skip detailed resolution for this call
                 }

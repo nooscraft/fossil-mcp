@@ -7,6 +7,7 @@
 //! Trade-off: CSR is immutable after construction and requires binary search for lookups.
 //! Performance: O(log E) edge lookups vs O(1) DiGraph but with much better memory efficiency.
 
+#[allow(unused_imports)]
 use crate::core::{CallEdge, NodeId, EdgeConfidence};
 use petgraph::graph::NodeIndex;
 
