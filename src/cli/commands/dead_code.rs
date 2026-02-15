@@ -9,6 +9,7 @@ use crate::dead_code::detector::{Detector, DetectorConfig};
 
 use super::{dead_code_to_findings, format_findings, parse_confidence};
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     path: &Path,
     include_tests: bool,

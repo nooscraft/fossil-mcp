@@ -26,6 +26,7 @@ pub struct CodeGraph {
     file_to_node_ids: HashMap<String, Vec<NodeId>>,
     // LAZY: Built on first call to find_node_by_name_in_file() via interior mutability
     // Saves ~30GB memory by deferring index construction until needed
+    #[allow(clippy::type_complexity)]
     file_name_index: RefCell<Option<HashMap<(String, String), Vec<NodeIndex>>>>,
     // Bloom filter for (file, name) membership testing: reduces lookups by 50-80%
     // Populated when file_name_index is built. 100k pairs, 1% false positive rate

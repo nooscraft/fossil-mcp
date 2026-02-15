@@ -447,19 +447,18 @@ pub fn detect_config_entry_points(root: &Path, graph: &CodeGraph) -> HashSet<Nod
     for api_file in &api_module_files {
         for (idx, node) in graph.nodes() {
             let node_file = &node.location.file;
-            if node_file.ends_with(api_file) || api_file.ends_with(node_file) {
-                if node.visibility == Visibility::Public
-                    && matches!(
-                        node.kind,
-                        NodeKind::Function
-                            | NodeKind::Method
-                            | NodeKind::AsyncFunction
-                            | NodeKind::AsyncMethod
-                            | NodeKind::Class
-                    )
-                {
-                    entries.insert(idx);
-                }
+            if (node_file.ends_with(api_file) || api_file.ends_with(node_file))
+                && node.visibility == Visibility::Public
+                && matches!(
+                    node.kind,
+                    NodeKind::Function
+                        | NodeKind::Method
+                        | NodeKind::AsyncFunction
+                        | NodeKind::AsyncMethod
+                        | NodeKind::Class
+                )
+            {
+                entries.insert(idx);
             }
         }
     }
@@ -472,10 +471,10 @@ pub fn detect_config_entry_points(root: &Path, graph: &CodeGraph) -> HashSet<Nod
     for entry_file in &entry_files {
         for (idx, node) in graph.nodes() {
             let node_file = &node.location.file;
-            if node_file.ends_with(entry_file) || entry_file.ends_with(node_file) {
-                if node.name.starts_with("<module:") || node.visibility == Visibility::Public {
-                    entries.insert(idx);
-                }
+            if (node_file.ends_with(entry_file) || entry_file.ends_with(node_file))
+                && (node.name.starts_with("<module:") || node.visibility == Visibility::Public)
+            {
+                entries.insert(idx);
             }
         }
     }
@@ -708,8 +707,8 @@ fn extract_package_json_public_api_modules(
         }
 
         // Try .d.ts → .ts variant (types/typings field)
-        if cleaned.ends_with(".d.ts") {
-            let ts_variant = format!("{}.ts", &cleaned[..cleaned.len() - 5]);
+        if let Some(stripped) = cleaned.strip_suffix(".d.ts") {
+            let ts_variant = format!("{}.ts", stripped);
             let resolved_ts = dir.join(&ts_variant);
             api_module_files.insert(resolved_ts.to_string_lossy().to_string());
             api_module_files.insert(ts_variant);
@@ -852,13 +851,12 @@ fn detect_python_public_api_entries(
                     continue;
                 }
                 // Check the node is in the same package (directory tree)
-                if node.location.file.contains(&*init_dir_str)
+                if (node.location.file.contains(&*init_dir_str)
                     || init_dir_str.contains(&node.location.file)
-                    || is_in_package_dir(&node.location.file, &init_dir_str)
+                    || is_in_package_dir(&node.location.file, &init_dir_str))
+                    && public_names.contains(&node.name)
                 {
-                    if public_names.contains(&node.name) {
-                        entries.insert(idx);
-                    }
+                    entries.insert(idx);
                 }
             }
         }

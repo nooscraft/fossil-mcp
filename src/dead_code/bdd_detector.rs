@@ -137,7 +137,7 @@ impl BddContextDetector {
         // Must have uppercase letter after 'on'
         (node.name.starts_with("on")
             && node.name.len() > 2
-            && node.name.chars().nth(2).map_or(false, |c| c.is_uppercase()))
+            && node.name.chars().nth(2).is_some_and(|c| c.is_uppercase()))
             // Lowercase DOM/SSE event handlers (onopen, onmessage, onerror, onclose, etc.)
             || matches!(
                 node.name.as_str(),

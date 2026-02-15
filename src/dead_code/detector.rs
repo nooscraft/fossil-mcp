@@ -158,7 +158,6 @@ impl Detector {
         } else {
             Vec::new()
         };
-        if !dead_store_findings.is_empty() {}
 
         // Detect feature-flag controlled dead code (always-dead blocks)
         let mut always_dead_ranges: Vec<(String, std::ops::Range<usize>)> = Vec::new();
@@ -599,7 +598,7 @@ impl Detector {
                 .get(def_name.as_str())
                 .map(|positions| {
                     // Binary search for first position > start_byte
-                    match positions.binary_search(&start_byte) {
+                    match positions.binary_search(start_byte) {
                         Ok(idx) => idx + 1 < positions.len(), // Found exact match, check if later use exists
                         Err(idx) => idx < positions.len(),    // Not found, idx is insertion point
                     }

@@ -26,10 +26,10 @@ impl DiffInfo {
     ///
     /// # Format
     /// ```text
-    /// M	src/file1.rs         (Modified)
-    /// A	src/file2.rs         (Added)
-    /// D	src/file3.rs         (Deleted)
-    /// R100 old.rs	new.rs   (Renamed)
+    /// M    src/file1.rs         (Modified)
+    /// A    src/file2.rs         (Added)
+    /// D    src/file3.rs         (Deleted)
+    /// R100 old.rs    new.rs   (Renamed)
     /// ```
     pub fn from_git_diff(diff_output: &str) -> Result<Self, String> {
         let mut changed_files = HashSet::new();
@@ -106,6 +106,12 @@ pub struct DependentAnalyzer {
     file_to_functions: HashMap<String, HashSet<String>>,
 }
 
+impl Default for DependentAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DependentAnalyzer {
     /// Create a new dependent analyzer.
     pub fn new() -> Self {
@@ -119,7 +125,7 @@ impl DependentAnalyzer {
     pub fn add_function_definition(&mut self, function: String, file: String) {
         self.file_to_functions
             .entry(file)
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(function);
     }
 
@@ -127,7 +133,7 @@ impl DependentAnalyzer {
     pub fn add_function_call(&mut self, function: String, called_in_file: String) {
         self.function_call_sites
             .entry(function)
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(called_in_file);
     }
 

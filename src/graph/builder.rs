@@ -252,7 +252,7 @@ impl GraphBuilder {
                 if let Some(resolved_id) = cached_result {
                     cross_file_edges.push(CallEdge::new(
                         unresolved.caller_id,
-                        resolved_id.clone(),
+                        *resolved_id,
                         EdgeConfidence::HighLikely,
                     ));
                     _clustered_resolutions += 1;
@@ -271,7 +271,7 @@ impl GraphBuilder {
                     if let Some(to_id) = project_graph.get_node(callee_idx).map(|n| n.id) {
                         cross_file_edges.push(CallEdge::new(
                             unresolved.caller_id,
-                            to_id.clone(),
+                            to_id,
                             EdgeConfidence::HighLikely,
                         ));
                         resolved = true;
@@ -286,7 +286,7 @@ impl GraphBuilder {
                         if let Some(to_id) = project_graph.get_node(callee_idx).map(|n| n.id) {
                             cross_file_edges.push(CallEdge::new(
                                 unresolved.caller_id,
-                                to_id.clone(),
+                                to_id,
                                 EdgeConfidence::HighLikely,
                             ));
                             resolved = true;
@@ -344,7 +344,7 @@ impl GraphBuilder {
                                         {
                                             cross_file_edges.push(CallEdge::new(
                                                 unresolved.caller_id,
-                                                to_id.clone(),
+                                                to_id,
                                                 EdgeConfidence::HighLikely,
                                             ));
                                             resolved = true;
@@ -363,7 +363,7 @@ impl GraphBuilder {
                                         {
                                             cross_file_edges.push(CallEdge::new(
                                                 unresolved.caller_id,
-                                                to_id.clone(),
+                                                to_id,
                                                 EdgeConfidence::HighLikely,
                                             ));
                                             resolved = true;
@@ -381,7 +381,7 @@ impl GraphBuilder {
                                             {
                                                 cross_file_edges.push(CallEdge::new(
                                                     unresolved.caller_id,
-                                                    to_id.clone(),
+                                                    to_id,
                                                     EdgeConfidence::HighLikely,
                                                 ));
                                                 resolved = true;

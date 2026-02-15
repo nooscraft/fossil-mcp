@@ -287,7 +287,7 @@ impl Pipeline {
 
         // Get git diff to find changed files
         let diff_output = std::process::Command::new("git")
-            .args(&["diff", "--name-status", &format!("{}...HEAD", base_branch)])
+            .args(["diff", "--name-status", &format!("{}...HEAD", base_branch)])
             .current_dir(root)
             .output()
             .map_err(|e| crate::core::Error::analysis(format!("Failed to run git diff: {}", e)))?;
@@ -300,8 +300,7 @@ impl Pipeline {
         }
 
         let diff_str = String::from_utf8_lossy(&diff_output.stdout);
-        let diff_info =
-            DiffInfo::from_git_diff(&diff_str).map_err(|e| crate::core::Error::analysis(e))?;
+        let diff_info = DiffInfo::from_git_diff(&diff_str).map_err(crate::core::Error::analysis)?;
 
         let changed_files = diff_info.changed_file_strings();
         info!("Detected {} changed file(s)", changed_files.len());
