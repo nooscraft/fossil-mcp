@@ -7,6 +7,7 @@ use crate::analysis::Pipeline;
 use crate::core::{
     Confidence, FossilType, LineOffsetTable, NodeKind, ParsedFile, RemovalImpact, Severity,
 };
+use crate::dead_code::FeatureFlagDetector;
 use crate::graph::CodeGraph;
 use crate::parsers::ParserRegistry;
 use petgraph::graph::NodeIndex;
@@ -156,9 +157,28 @@ impl Detector {
         if !dead_store_findings.is_empty() {
         }
 
+        // Detect feature-flag controlled dead code (always-dead blocks)
+        let mut always_dead_ranges: Vec<(String, std::ops::Range<usize>)> = Vec::new();
+        for pf in parsed_files {
+            let flags = FeatureFlagDetector::detect_flags(&pf.source, &pf.path, pf.language);
+            let always_dead_flags = FeatureFlagDetector::find_always_dead_flags(&flags);
+            for flag in always_dead_flags {
+                // For now, mark the line containing the flag as start of always-dead region
+                // In a more sophisticated implementation, would track the block boundaries
+                always_dead_ranges.push((flag.file.clone(), flag.line..flag.line + 1));
+            }
+        }
+
         // Classify dead code
         let classifier = DeadCodeClassifier::new(graph);
         let mut findings = classifier.classify(&production_reachable, &test_reachable);
+
+        // Filter findings: exclude those in always-dead feature flag blocks
+        findings.retain(|f| {
+            !always_dead_ranges.iter().any(|(file, range)| {
+                file == &f.file && range.contains(&f.line_start)
+            })
+        });
 
         // Merge dead store findings into main findings
         findings.extend(dead_store_findings);
