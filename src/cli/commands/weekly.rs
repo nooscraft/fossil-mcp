@@ -63,7 +63,7 @@ pub fn run(detailed: bool) -> Result<String, crate::core::Error> {
     })?;
 
     // Build header
-    output.push_str("\n");
+    output.push('\n');
     output.push_str(&format!(
         "  {}  {}\n",
         c.bold("WEEKLY ANALYSIS"),
@@ -124,11 +124,9 @@ pub fn run(detailed: bool) -> Result<String, crate::core::Error> {
         // Wrap key_finding at 75 chars
         let mut current_line = String::new();
         for word in project.key_finding.split_whitespace() {
-            if current_line.len() + word.len() + 1 > 75 {
-                if !current_line.is_empty() {
-                    output.push_str(&format!("      {} {}\n", c.dim("→"), c.dim(&current_line)));
-                    current_line.clear();
-                }
+            if current_line.len() + word.len() + 1 > 75 && !current_line.is_empty() {
+                output.push_str(&format!("      {} {}\n", c.dim("→"), c.dim(&current_line)));
+                current_line.clear();
             }
             if !current_line.is_empty() {
                 current_line.push(' ');
@@ -172,11 +170,9 @@ pub fn run(detailed: bool) -> Result<String, crate::core::Error> {
         // Wrap finding text at 75 chars
         let mut current_line = String::new();
         for word in insight.finding.split_whitespace() {
-            if current_line.len() + word.len() + 1 > 75 {
-                if !current_line.is_empty() {
-                    output.push_str(&format!("    {}\n", c.dim(&current_line)));
-                    current_line.clear();
-                }
+            if current_line.len() + word.len() + 1 > 75 && !current_line.is_empty() {
+                output.push_str(&format!("    {}\n", c.dim(&current_line)));
+                current_line.clear();
             }
             if !current_line.is_empty() {
                 current_line.push(' ');
@@ -188,18 +184,18 @@ pub fn run(detailed: bool) -> Result<String, crate::core::Error> {
         }
 
         if i < data.key_insights.len() - 1 {
-            output.push_str("\n");
+            output.push('\n');
         }
     }
 
-    output.push_str("\n");
+    output.push('\n');
     if !detailed {
         output.push_str(&format!(
             "  {}\n",
             c.dim("Run 'fossil-mcp weekly --detailed' for full breakdown")
         ));
     }
-    output.push_str("\n");
+    output.push('\n');
 
     Ok(output)
 }
