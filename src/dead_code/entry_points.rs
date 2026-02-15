@@ -446,8 +446,8 @@ pub fn detect_config_entry_points(root: &Path, graph: &CodeGraph) -> HashSet<Nod
     // are NOT marked as entry points, only the exported public surface.
     for api_file in &api_module_files {
         for (idx, node) in graph.nodes() {
-            let node_file = &node.location.file;
-            if (node_file.ends_with(api_file) || api_file.ends_with(node_file))
+            let node_file = node.location.file.replace('\\', "/");
+            if (node_file.ends_with(api_file) || api_file.ends_with(&node_file))
                 && node.visibility == Visibility::Public
                 && matches!(
                     node.kind,
