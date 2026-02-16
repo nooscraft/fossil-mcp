@@ -66,9 +66,17 @@ Fossil MCP is a static analysis toolkit purpose-built for vibe-coded projects. I
 
 ## Install
 
-### Pre-built binaries (recommended)
+### Quick install (recommended)
 
-Download the latest binary for your platform from [GitHub Releases](https://github.com/yfedoseev/fossil-mcp/releases/latest), extract, and place `fossil-mcp` in your PATH:
+```bash
+curl -fsSL fossil-mcp.com/install.sh | sh
+```
+
+Auto-detects your OS and architecture, downloads the latest binary, and installs to `~/.local/bin/`.
+
+### Manual download
+
+Download the latest binary for your platform from [GitHub Releases](https://github.com/yfedoseev/fossil-mcp/releases/latest):
 
 ```bash
 # macOS (Apple Silicon)
@@ -430,11 +438,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
       - name: Install Fossil
-        run: cargo install fossil-mcp
+        run: curl -fsSL fossil-mcp.com/install.sh | sh
 
       - name: Run Fossil check
         run: |
