@@ -336,22 +336,19 @@ impl Pipeline {
             unchanged_source_files.len()
         );
 
-        // Load cached graph for unchanged files
+        // Load cached graph for unchanged files (currently disabled; unchanged files are re-analyzed)
         let cached_graph = CodeGraph::new();
         let _cache_hits = 0;
-        let _cache_misses = unchanged_source_files.len();
 
         if let Some(ref _store) = cache_store {
-            // Note: In a full implementation, would load cached analysis results here
-            // For now, this is a placeholder for the cache lookup logic
-            // Real implementation would load cached nodes/edges and merge into cached_graph
-            for _file in &unchanged_source_files {
-                // Cache lookup would happen here
-            }
+            // TODO: Load cached analysis results for unchanged files to enable true incremental analysis
         }
 
-        // Parse changed files only
-        let files_to_parse = group_by_directory(changed_source_files);
+        // Parse all files until cache loading for unchanged files is implemented.
+        // Only parsing changed files would produce an incomplete graph.
+        let mut all_source_files = unchanged_source_files;
+        all_source_files.extend(changed_source_files);
+        let files_to_parse = group_by_directory(all_source_files);
         let registry = ParserRegistry::with_defaults()?;
         let parse_results: Vec<Result<ParsedFile, (String, String)>> = if self.config.parallel {
             let chunk_size = compute_chunk_size(files_to_parse.len());

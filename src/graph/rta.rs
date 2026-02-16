@@ -126,6 +126,12 @@ impl RapidTypeAnalysis {
 
         while !methods_to_reprocess.is_empty() && iteration < MAX_ITERATIONS {
             iteration += 1;
+            if iteration == MAX_ITERATIONS {
+                tracing::warn!(
+                    "RTA fixed-point reached MAX_ITERATIONS ({}); results may be incomplete",
+                    MAX_ITERATIONS
+                );
+            }
             let mut new_methods = Vec::new();
 
             for method_idx in methods_to_reprocess.drain(..) {

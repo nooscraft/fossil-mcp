@@ -9,8 +9,6 @@
 //! - Configuration-driven selection
 //! - Lazy initialization
 
-#![allow(non_snake_case)]
-
 use crate::core::CodeNode;
 use regex::Regex;
 use std::sync::OnceLock;
@@ -100,33 +98,33 @@ impl BddContextDetector {
         let name_lower = node.name.to_lowercase();
 
         // Common callback handler patterns
-        CALLBACK_PATTERNS().is_match(&name_lower)
+        callback_patterns().is_match(&name_lower)
             || node
                 .attributes
                 .iter()
-                .any(|attr| CALLBACK_ATTR_PATTERNS().is_match(attr))
+                .any(|attr| callback_attr_patterns().is_match(attr))
     }
 
     /// Check if function is a middleware
     fn is_middleware(node: &CodeNode) -> bool {
         let name_lower = node.name.to_lowercase();
 
-        MIDDLEWARE_PATTERNS().is_match(&name_lower)
+        middleware_patterns().is_match(&name_lower)
             || node
                 .attributes
                 .iter()
-                .any(|attr| MIDDLEWARE_ATTR_PATTERNS().is_match(attr))
+                .any(|attr| middleware_attr_patterns().is_match(attr))
     }
 
     /// Check if function is a lifecycle/setup/teardown method
     fn is_lifecycle_method(node: &CodeNode) -> bool {
         let name_lower = node.name.to_lowercase();
 
-        LIFECYCLE_PATTERNS().is_match(&name_lower)
+        lifecycle_patterns().is_match(&name_lower)
             || node
                 .attributes
                 .iter()
-                .any(|attr| LIFECYCLE_ATTR_PATTERNS().is_match(attr))
+                .any(|attr| lifecycle_attr_patterns().is_match(attr))
     }
 
     /// Check if function matches event handler naming conventions
@@ -155,7 +153,7 @@ impl BddContextDetector {
             || node
                 .attributes
                 .iter()
-                .any(|attr| EVENT_ATTR_PATTERNS().is_match(attr))
+                .any(|attr| event_attr_patterns().is_match(attr))
     }
 
     /// Swift delegate methods follow naming conventions like `Did`, `Will`, `Should`
@@ -196,9 +194,9 @@ impl BddContextDetector {
     fn is_plugin_registration(node: &CodeNode) -> bool {
         let name_lower = node.name.to_lowercase();
 
-        PLUGIN_PATTERNS().is_match(&name_lower)
+        plugin_patterns().is_match(&name_lower)
             || node.attributes.iter().any(|attr| {
-                PLUGIN_ATTR_PATTERNS().is_match(attr)
+                plugin_attr_patterns().is_match(attr)
                     || attr.contains("register")
                     || attr.contains("plugin")
             })
@@ -229,7 +227,7 @@ impl BddContextDetector {
     fn is_factory_method(node: &CodeNode) -> bool {
         let name_lower = node.name.to_lowercase();
 
-        FACTORY_PATTERNS().is_match(&name_lower)
+        factory_patterns().is_match(&name_lower)
     }
 }
 
@@ -345,38 +343,6 @@ fn factory_patterns() -> &'static Regex {
         )
         .unwrap()
     })
-}
-
-// Re-export patterns as functions for consistency
-fn CALLBACK_PATTERNS() -> &'static Regex {
-    callback_patterns()
-}
-fn CALLBACK_ATTR_PATTERNS() -> &'static Regex {
-    callback_attr_patterns()
-}
-fn MIDDLEWARE_PATTERNS() -> &'static Regex {
-    middleware_patterns()
-}
-fn MIDDLEWARE_ATTR_PATTERNS() -> &'static Regex {
-    middleware_attr_patterns()
-}
-fn LIFECYCLE_PATTERNS() -> &'static Regex {
-    lifecycle_patterns()
-}
-fn LIFECYCLE_ATTR_PATTERNS() -> &'static Regex {
-    lifecycle_attr_patterns()
-}
-fn EVENT_ATTR_PATTERNS() -> &'static Regex {
-    event_attr_patterns()
-}
-fn PLUGIN_PATTERNS() -> &'static Regex {
-    plugin_patterns()
-}
-fn PLUGIN_ATTR_PATTERNS() -> &'static Regex {
-    plugin_attr_patterns()
-}
-fn FACTORY_PATTERNS() -> &'static Regex {
-    factory_patterns()
 }
 
 #[cfg(test)]

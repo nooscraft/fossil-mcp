@@ -429,7 +429,7 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                         continue;
                     }
 
-                    // Skip triple-X in data format patterns like "XXX-XX-XXXX" placeholders (#25)
+                    // Skip literal "XXX" used as part of data format placeholders (e.g., "XXX-XX-XXXX") (#25)
                     if m.as_str() == "XXX" {
                         let before_char = if m.start() > 0 {
                             line.chars().nth(m.start() - 1)

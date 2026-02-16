@@ -225,6 +225,40 @@ impl CacheStore {
         Ok(())
     }
 
+    /// Remove cache files older than `max_age_hours`.
+    pub fn cleanup(&self, max_age_hours: u32) -> Result<usize, crate::core::Error> {
+        if !self.enabled || !self.cache_dir.exists() {
+            return Ok(0);
+        }
+
+        let max_age = std::time::Duration::from_secs(u64::from(max_age_hours) * 3600);
+        let now = std::time::SystemTime::now();
+        let mut removed = 0;
+
+        let entries = fs::read_dir(&self.cache_dir)
+            .map_err(|e| crate::core::Error::config(format!("Cannot read cache dir: {e}")))?;
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+            if let Ok(metadata) = fs::metadata(&path) {
+                let is_expired = metadata
+                    .modified()
+                    .ok()
+                    .and_then(|mtime| now.duration_since(mtime).ok())
+                    .is_some_and(|age| age > max_age);
+                if is_expired {
+                    let _ = fs::remove_file(&path);
+                    removed += 1;
+                }
+            }
+        }
+
+        Ok(removed)
+    }
+
     /// Get cache statistics.
     pub fn get_stats(&self) -> Result<CacheStats, crate::core::Error> {
         let mut stats = CacheStats::default();

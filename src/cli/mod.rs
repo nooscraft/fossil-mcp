@@ -249,7 +249,7 @@ enum Commands {
         cache_stats: bool,
 
         /// Analyze only changed files (requires git repository)
-        /// Provide base branch name (e.g., main, develop) or leave empty for git diff HEAD~1
+        /// Provide base branch name (e.g., --diff main, --diff develop)
         #[arg(long, value_name = "BASE_BRANCH")]
         diff: Option<String>,
     },

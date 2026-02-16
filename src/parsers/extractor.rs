@@ -997,6 +997,9 @@ fn collect_typescript_decorators(node: tree_sitter::Node, source: &str, attrs: &
 /// Collect Swift attributes from the `modifiers` child of a declaration node.
 /// In tree-sitter-swift, attributes are in: declaration → modifiers → attribute → user_type.
 fn collect_swift_attributes(node: tree_sitter::Node, source: &str, attrs: &mut Vec<String>) {
+    // Use a small set to deduplicate attributes from multiple grammar positions
+    let initial_len = attrs.len();
+
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "modifiers" {
@@ -1050,6 +1053,11 @@ fn collect_swift_attributes(node: tree_sitter::Node, source: &str, attrs: &mut V
         }
         sibling = sib.prev_sibling();
     }
+
+    // Deduplicate attributes collected from multiple grammar positions
+    let new_attrs = &mut attrs[initial_len..];
+    new_attrs.sort_unstable();
+    attrs.dedup();
 }
 
 fn normalize_ts_decorator(name: &str, attrs: &mut Vec<String>) {

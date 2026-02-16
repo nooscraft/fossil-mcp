@@ -4,7 +4,11 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CACHE_TTL_SECS: u64 = 86400; // 24 hours
-const WEEKLY_URL: &str = "https://fossil-mcp.com/data/weekly_slop.json";
+const DEFAULT_WEEKLY_URL: &str = "https://fossil-mcp.com/data/weekly_slop.json";
+
+fn weekly_url() -> String {
+    std::env::var("FOSSIL_WEEKLY_URL").unwrap_or_else(|_| DEFAULT_WEEKLY_URL.to_string())
+}
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct WeeklyCache {
@@ -40,11 +44,12 @@ fn write_cache(cache: &WeeklyCache) {
 }
 
 fn fetch_weekly_json() -> Option<String> {
+    let url = weekly_url();
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(10)))
         .build()
         .new_agent();
-    let mut body = agent.get(WEEKLY_URL).call().ok()?.into_body();
+    let mut body = agent.get(&url).call().ok()?.into_body();
     body.read_to_string().ok()
 }
 

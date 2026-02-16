@@ -60,8 +60,8 @@ impl CodeGraphStats {
                 .or_insert_with(Vec::new)
                 .push(node_idx);
 
-            // For each outgoing edge (calls_from), track caller and callee
-            for _outgoing_idx in graph.calls_from(node_idx) {
+            // Track callers: add once per node that has at least one outgoing call
+            if graph.calls_from(node_idx).next().is_some() {
                 let caller_hash = xxh3_64(format!("{:?}", node_idx).as_bytes());
                 ull_callers.add(&caller_hash);
             }

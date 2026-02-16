@@ -166,22 +166,14 @@ impl GraphBuilder {
         let resolver = ImportResolver::new(parsed_files);
 
         // === Cross-file call resolution ===
-        // Build barrel re-export cache ONCE to avoid repeated parsing
-        // (eliminates O(files × barrels × lines) re-parsing)
+        // Build barrel re-export cache and ParsedFile index in a single pass
+        // (eliminates O(files × barrels × lines) re-parsing + O(4030) linear scan per lookup)
         let mut barrel_cache: std::collections::HashMap<String, Vec<BarrelReexport>> =
             std::collections::HashMap::new();
-        for pf in parsed_files {
-            if barrel_suffixes.iter().any(|s| pf.path.ends_with(s)) {
-                barrel_cache.insert(pf.path.clone(), extract_barrel_reexports(&pf.source));
-            }
-        }
-
-        // === QUICK WIN: Build barrel ParsedFile index ===
-        // (Quick Win optimization: eliminate O(4030) linear scan per barrel lookup)
-        // Pre-build HashMap<path, &ParsedFile> for barrel files to avoid iter().find()
         let mut barrel_pf_index: HashMap<String, &ParsedFile> = HashMap::new();
         for pf in parsed_files {
             if barrel_suffixes.iter().any(|s| pf.path.ends_with(s)) {
+                barrel_cache.insert(pf.path.clone(), extract_barrel_reexports(&pf.source));
                 barrel_pf_index.insert(pf.path.clone(), pf);
             }
         }

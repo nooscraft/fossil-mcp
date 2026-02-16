@@ -148,6 +148,7 @@ impl<'a> EntryPointDetector<'a> {
                     | NodeKind::Trait
                     | NodeKind::Class
                     | NodeKind::Interface
+                    | NodeKind::Enum
             )
     }
 
