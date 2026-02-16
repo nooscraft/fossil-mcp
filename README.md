@@ -68,11 +68,17 @@ Fossil MCP is a static analysis toolkit purpose-built for vibe-coded projects. I
 
 ### Quick install (recommended)
 
+**macOS / Linux:**
 ```bash
 curl -fsSL fossil-mcp.com/install.sh | sh
 ```
 
-Auto-detects your OS and architecture, downloads the latest binary, and installs to `~/.local/bin/`.
+**Windows (PowerShell):**
+```powershell
+irm fossil-mcp.com/install.ps1 | iex
+```
+
+Auto-detects your OS and architecture, downloads the latest binary, and adds it to your PATH.
 
 ### Manual download
 
