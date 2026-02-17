@@ -8,7 +8,9 @@ use crate::cli::C;
 use crate::config::FossilConfig;
 use crate::core::{Confidence, Finding, Language, Severity, SourceLocation};
 
-use super::{dead_code_to_findings, format_findings, parse_confidence};
+use super::{
+    dead_code_to_findings, format_findings, parse_confidence, scaffolding_json_to_findings,
+};
 
 /// A progress reporter that prints status to stderr.
 struct Progress {
@@ -206,6 +208,64 @@ pub fn run(
         }
     }
 
+    // ── Scaffolding detection ──────────────────────────────────────
+    let mut scaffolding_count = 0usize;
+    {
+        if !quiet {
+            progress.step("Detecting scaffolding artifacts...");
+        }
+
+        let mut args = HashMap::new();
+        args.insert(
+            "path".to_string(),
+            serde_json::Value::String(path.to_string_lossy().to_string()),
+        );
+        args.insert("include_todos".to_string(), serde_json::Value::Bool(false));
+        args.insert(
+            "include_placeholders".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        args.insert(
+            "include_phased_comments".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        args.insert(
+            "include_temp_files".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        args.insert(
+            "limit".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(10000)),
+        );
+
+        match crate::mcp::tools::scaffolding::execute_detect_scaffolding(&args) {
+            Ok(result) => {
+                if let Some(parsed) = result
+                    .pointer("/content/0/text")
+                    .and_then(|v| v.as_str())
+                    .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                {
+                    let json_findings = parsed
+                        .get("findings")
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let scaffold_findings = scaffolding_json_to_findings(&json_findings);
+                    scaffolding_count = scaffold_findings.len();
+                    all_findings.extend(scaffold_findings);
+                }
+                if !quiet {
+                    progress.done(&format!("{} scaffolding artifacts", scaffolding_count));
+                }
+            }
+            Err(e) => {
+                if !quiet {
+                    eprintln!("  {} Scaffolding detection failed: {e}", c.red("✗"));
+                }
+            }
+        }
+    }
+
     if quiet {
         return format_findings(&all_findings, format);
     }
@@ -237,13 +297,17 @@ pub fn run(
     Ok(String::new())
 }
 
-fn print_dashboard(
+pub(crate) fn print_dashboard(
     c: &C,
     all_findings: &[Finding],
     dead_code_count: usize,
     clone_count: usize,
     duplicated_lines: usize,
 ) {
+    let scaffolding_count = all_findings
+        .iter()
+        .filter(|f| f.rule_id.starts_with("SCAFFOLD"))
+        .count();
     let total = all_findings.len();
 
     // Count by confidence
@@ -287,11 +351,11 @@ fn print_dashboard(
 
     // Category breakdown — right-align counts before coloring
     eprintln!();
-    let cat_w = std::cmp::max(
-        dead_code_count.to_string().len(),
-        clone_count.to_string().len(),
-    )
-    .max(1);
+    let cat_w = [dead_code_count, clone_count, scaffolding_count]
+        .iter()
+        .map(|n| n.to_string().len())
+        .max()
+        .unwrap_or(1);
     if dead_code_count > 0 {
         let bar = severity_bar(dead_code_count, bar_max, bar_w);
         let n = format!("{:>w$}", dead_code_count, w = cat_w);
@@ -311,6 +375,16 @@ fn print_dashboard(
             c.white(&n),
             c.cyan(&bar),
             c.dim(&format!("{} duplicated lines", duplicated_lines)),
+        );
+    }
+    if scaffolding_count > 0 {
+        let bar = severity_bar(scaffolding_count, bar_max, bar_w);
+        let n = format!("{:>w$}", scaffolding_count, w = cat_w);
+        eprintln!(
+            "  {} Scaffolding   {}   {}",
+            c.magenta("▐"),
+            c.white(&n),
+            c.magenta(&bar),
         );
     }
 
@@ -344,7 +418,7 @@ fn print_dashboard(
             if let Some(lang) = Language::from_path(std::path::Path::new(&f.location.file)) {
                 if f.rule_id.starts_with("CLONE") {
                     *lang_clone.entry(lang).or_default() += 1;
-                } else {
+                } else if !f.rule_id.starts_with("SCAFFOLD") {
                     *lang_dead.entry(lang).or_default() += 1;
                 }
             }
@@ -439,10 +513,11 @@ fn print_dashboard(
         }
         eprintln!();
         eprintln!(
-            "  {} {} dead code   {} clones",
+            "  {} {} dead code   {} clones   {} scaffolding",
             c.dim("Legend:"),
             c.yellow("██"),
             c.cyan("██"),
+            c.magenta("██"),
         );
     }
 }
@@ -487,6 +562,62 @@ fn print_next_steps(c: &C, dead_code_count: usize, nodes_analyzed: usize, path: 
     eprintln!();
 }
 
+/// Parse `[N] [lang]` from REPL command args.
+/// Examples: `dead 10`, `dead typescript`, `dead 10 typescript`, `dead 10 rust,python`
+fn parse_explore_args(parts: &[&str]) -> (usize, Option<Vec<Language>>) {
+    let mut n = 10usize;
+    let mut lang_filter: Option<Vec<Language>> = None;
+
+    for part in parts {
+        if let Ok(num) = part.parse::<usize>() {
+            n = num;
+        } else {
+            let (langs, _invalid) = Language::parse_list(part);
+            if !langs.is_empty() {
+                lang_filter = Some(langs);
+            }
+        }
+    }
+
+    (n, lang_filter)
+}
+
+/// Print REPL help with consistent column alignment.
+fn print_repl_help(c: &C) {
+    let cmds: &[(&str, &str)] = &[
+        (
+            "dead [N] [lang]",
+            "Show top N dead code findings (default 10)",
+        ),
+        (
+            "clones [N] [lang]",
+            "Show top N clone findings (default 10)",
+        ),
+        (
+            "scaffolding [N] [lang]",
+            "Show top N scaffolding findings (default 10)",
+        ),
+        (
+            "hotspots [N] [lang]",
+            "Show top N files by finding count (default 5)",
+        ),
+        ("file <path>", "Show all findings in a specific file"),
+        ("export sarif", "Export full SARIF report"),
+        ("langs", "Show language breakdown"),
+        ("summary", "Re-show dashboard"),
+        ("q / exit", "Quit"),
+    ];
+    let w = cmds.iter().map(|(c, _)| c.len()).max().unwrap_or(20);
+    eprintln!();
+    for (cmd, desc) in cmds {
+        eprintln!(
+            "    {}  {}",
+            c.cyan(&format!("{:<w$}", cmd, w = w)),
+            c.dim(desc),
+        );
+    }
+}
+
 /// Interactive REPL — lets users explore findings without re-running analysis.
 fn interactive_repl(
     c: &C,
@@ -496,26 +627,27 @@ fn interactive_repl(
     _nodes_analyzed: usize,
     path: &Path,
 ) {
-    // Pre-sort findings
-    let mut dead: Vec<&Finding> = all_findings
-        .iter()
-        .filter(|f| !f.rule_id.starts_with("CLONE"))
-        .collect();
-    dead.sort_by(|a, b| {
+    // Partition findings by category, each sorted by confidence (desc) + severity (desc)
+    let sort_fn = |a: &&Finding, b: &&Finding| {
         b.confidence
             .cmp(&a.confidence)
             .then_with(|| b.severity.cmp(&a.severity))
-    });
-
+    };
+    let mut dead: Vec<&Finding> = all_findings
+        .iter()
+        .filter(|f| !f.rule_id.starts_with("CLONE") && !f.rule_id.starts_with("SCAFFOLD"))
+        .collect();
+    dead.sort_by(sort_fn);
     let mut clones: Vec<&Finding> = all_findings
         .iter()
         .filter(|f| f.rule_id.starts_with("CLONE"))
         .collect();
-    clones.sort_by(|a, b| {
-        b.confidence
-            .cmp(&a.confidence)
-            .then_with(|| b.severity.cmp(&a.severity))
-    });
+    clones.sort_by(sort_fn);
+    let mut scaffolding: Vec<&Finding> = all_findings
+        .iter()
+        .filter(|f| f.rule_id.starts_with("SCAFFOLD"))
+        .collect();
+    scaffolding.sort_by(sort_fn);
 
     // File hotspot data
     let mut by_file: HashMap<&str, usize> = HashMap::new();
@@ -535,43 +667,7 @@ fn interactive_repl(
         c.white("Interactive mode."),
         c.dim("q"),
     );
-    eprintln!();
-    eprintln!(
-        "    {}       {}",
-        c.cyan("dead [N]"),
-        c.dim("Show top N dead code findings (default 10)"),
-    );
-    eprintln!(
-        "    {}     {}",
-        c.cyan("clones [N]"),
-        c.dim("Show top N clone findings (default 10)"),
-    );
-    eprintln!(
-        "    {}   {}",
-        c.cyan("hotspots [N]"),
-        c.dim("Show top N files by finding count (default 5)"),
-    );
-    eprintln!(
-        "    {}  {}",
-        c.cyan("file <path>"),
-        c.dim("Show all findings in a specific file"),
-    );
-    eprintln!(
-        "    {}     {}",
-        c.cyan("export sarif"),
-        c.dim("Export full SARIF report"),
-    );
-    eprintln!(
-        "    {}          {}",
-        c.cyan("langs"),
-        c.dim("Show language breakdown"),
-    );
-    eprintln!(
-        "    {}       {}",
-        c.cyan("summary"),
-        c.dim("Show the dashboard summary again"),
-    );
-    eprintln!("    {}       {}", c.cyan("q / exit"), c.dim("Quit"),);
+    print_repl_help(c);
     eprintln!(
         "  {}",
         c.bold("────────────────────────────────────────────────")
@@ -605,74 +701,229 @@ fn interactive_repl(
             "q" | "quit" | "exit" => break,
 
             "dead" | "deadcode" | "dead-code" => {
-                let n: usize = arg1.parse().unwrap_or(10);
-                let show = n.min(dead.len());
-                if dead.is_empty() {
-                    eprintln!("  No dead code findings.");
+                let (n, lang_filter) = parse_explore_args(&parts[1..]);
+                let filtered: Vec<&&Finding> = if let Some(ref langs) = lang_filter {
+                    dead.iter()
+                        .filter(|f| {
+                            Language::from_path(std::path::Path::new(&f.location.file))
+                                .is_some_and(|l| langs.contains(&l))
+                        })
+                        .collect()
+                } else {
+                    dead.iter().collect()
+                };
+                let show = n.min(filtered.len());
+                if filtered.is_empty() {
+                    eprintln!(
+                        "  No dead code findings{}.",
+                        lang_filter
+                            .as_ref()
+                            .map(|l| format!(
+                                " for {}",
+                                l.iter().map(|x| x.name()).collect::<Vec<_>>().join(", ")
+                            ))
+                            .unwrap_or_default()
+                    );
                     continue;
                 }
+                let label = lang_filter
+                    .as_ref()
+                    .map(|l| {
+                        format!(
+                            " [{}]",
+                            l.iter().map(|x| x.name()).collect::<Vec<_>>().join(", ")
+                        )
+                    })
+                    .unwrap_or_default();
                 eprintln!();
                 eprintln!(
                     "  {} {}",
                     c.bold("DEAD CODE"),
-                    c.dim(&format!("(showing {} of {})", show, dead_code_count)),
+                    c.dim(&format!(
+                        "(showing {} of {}{})",
+                        show,
+                        filtered.len(),
+                        label
+                    )),
                 );
                 eprintln!(
                     "  {}",
                     c.dim("────────────────────────────────────────────────")
                 );
-                for (i, f) in dead.iter().take(show).enumerate() {
+                for (i, f) in filtered.iter().take(show).enumerate() {
                     print_finding(c, i + 1, f);
                 }
             }
 
             "clones" | "clone" => {
-                let n: usize = arg1.parse().unwrap_or(10);
-                let show = n.min(clones.len());
-                if clones.is_empty() {
-                    eprintln!("  No clone findings.");
+                let (n, lang_filter) = parse_explore_args(&parts[1..]);
+                let filtered: Vec<&&Finding> = if let Some(ref langs) = lang_filter {
+                    clones
+                        .iter()
+                        .filter(|f| {
+                            Language::from_path(std::path::Path::new(&f.location.file))
+                                .is_some_and(|l| langs.contains(&l))
+                        })
+                        .collect()
+                } else {
+                    clones.iter().collect()
+                };
+                let show = n.min(filtered.len());
+                if filtered.is_empty() {
+                    eprintln!(
+                        "  No clone findings{}.",
+                        lang_filter
+                            .as_ref()
+                            .map(|l| format!(
+                                " for {}",
+                                l.iter().map(|x| x.name()).collect::<Vec<_>>().join(", ")
+                            ))
+                            .unwrap_or_default()
+                    );
                     continue;
                 }
+                let label = lang_filter
+                    .as_ref()
+                    .map(|l| {
+                        format!(
+                            " [{}]",
+                            l.iter().map(|x| x.name()).collect::<Vec<_>>().join(", ")
+                        )
+                    })
+                    .unwrap_or_default();
                 eprintln!();
                 eprintln!(
                     "  {} {}",
                     c.bold("CLONES"),
-                    c.dim(&format!("(showing {} of {})", show, clone_count)),
+                    c.dim(&format!(
+                        "(showing {} of {}{})",
+                        show,
+                        filtered.len(),
+                        label
+                    )),
                 );
                 eprintln!(
                     "  {}",
                     c.dim("────────────────────────────────────────────────")
                 );
-                for (i, f) in clones.iter().take(show).enumerate() {
+                for (i, f) in filtered.iter().take(show).enumerate() {
+                    print_finding(c, i + 1, f);
+                }
+            }
+
+            "scaffolding" | "scaffold" => {
+                let (n, lang_filter) = parse_explore_args(&parts[1..]);
+                let filtered: Vec<&&Finding> = if let Some(ref langs) = lang_filter {
+                    scaffolding
+                        .iter()
+                        .filter(|f| {
+                            Language::from_path(std::path::Path::new(&f.location.file))
+                                .is_some_and(|l| langs.contains(&l))
+                        })
+                        .collect()
+                } else {
+                    scaffolding.iter().collect()
+                };
+                let show = n.min(filtered.len());
+                if filtered.is_empty() {
+                    eprintln!(
+                        "  No scaffolding findings{}.",
+                        lang_filter
+                            .as_ref()
+                            .map(|l| format!(
+                                " for {}",
+                                l.iter().map(|x| x.name()).collect::<Vec<_>>().join(", ")
+                            ))
+                            .unwrap_or_default()
+                    );
+                    continue;
+                }
+                let label = lang_filter
+                    .as_ref()
+                    .map(|l| {
+                        format!(
+                            " [{}]",
+                            l.iter().map(|x| x.name()).collect::<Vec<_>>().join(", ")
+                        )
+                    })
+                    .unwrap_or_default();
+                eprintln!();
+                eprintln!(
+                    "  {} {}",
+                    c.bold("SCAFFOLDING"),
+                    c.dim(&format!(
+                        "(showing {} of {}{})",
+                        show,
+                        filtered.len(),
+                        label
+                    )),
+                );
+                eprintln!(
+                    "  {}",
+                    c.dim("────────────────────────────────────────────────")
+                );
+                for (i, f) in filtered.iter().take(show).enumerate() {
                     print_finding(c, i + 1, f);
                 }
             }
 
             "hotspots" | "hotspot" | "hot" => {
-                let n: usize = arg1.parse().unwrap_or(10);
-                let show = n.min(hotspots.len());
-                if hotspots.is_empty() {
+                let (n, lang_filter) = parse_explore_args(&parts[1..]);
+                // Rebuild hotspots with optional lang filter
+                let filtered_findings: Vec<&Finding> = if let Some(ref langs) = lang_filter {
+                    all_findings
+                        .iter()
+                        .filter(|f| {
+                            Language::from_path(std::path::Path::new(&f.location.file))
+                                .is_some_and(|l| langs.contains(&l))
+                        })
+                        .collect()
+                } else {
+                    all_findings.iter().collect()
+                };
+                let mut hm: HashMap<&str, usize> = HashMap::new();
+                for f in &filtered_findings {
+                    *hm.entry(&f.location.file).or_default() += 1;
+                }
+                let mut hs: Vec<(&str, usize)> = hm.into_iter().collect();
+                hs.sort_by(|a, b| b.1.cmp(&a.1));
+                let show = n.min(hs.len());
+                if hs.is_empty() {
                     eprintln!("  No files with findings.");
                     continue;
                 }
-                let max_count = hotspots[0].1;
-                let hw = hotspots
+                let max_count = hs[0].1;
+                let hw = hs
                     .iter()
                     .take(show)
                     .map(|(_, n)| n.to_string().len())
                     .max()
                     .unwrap_or(1);
+                let label = lang_filter
+                    .as_ref()
+                    .map(|l| {
+                        format!(
+                            " [{}]",
+                            l.iter().map(|x| x.name()).collect::<Vec<_>>().join(", ")
+                        )
+                    })
+                    .unwrap_or_default();
                 eprintln!();
                 eprintln!(
                     "  {} {}",
                     c.bold("HOTSPOTS"),
-                    c.dim(&format!("(showing {} of {} files)", show, hotspots.len())),
+                    c.dim(&format!(
+                        "(showing {} of {} files{})",
+                        show,
+                        hs.len(),
+                        label
+                    )),
                 );
                 eprintln!(
                     "  {}",
                     c.dim("────────────────────────────────────────────────")
                 );
-                for (file, count) in hotspots.iter().take(show) {
+                for (file, count) in hs.iter().take(show) {
                     let bar = severity_bar(*count, max_count, 12);
                     eprintln!(
                         "  {} {:>w$} findings   {}",
@@ -785,43 +1036,7 @@ fn interactive_repl(
             }
 
             "help" | "?" => {
-                eprintln!();
-                eprintln!(
-                    "    {}       {}",
-                    c.cyan("dead [N]"),
-                    c.dim("Show top N dead code findings"),
-                );
-                eprintln!(
-                    "    {}     {}",
-                    c.cyan("clones [N]"),
-                    c.dim("Show top N clone findings"),
-                );
-                eprintln!(
-                    "    {}   {}",
-                    c.cyan("hotspots [N]"),
-                    c.dim("Show top N file hotspots"),
-                );
-                eprintln!(
-                    "    {}  {}",
-                    c.cyan("file <path>"),
-                    c.dim("Show findings in a file (partial match)"),
-                );
-                eprintln!(
-                    "    {}     {}",
-                    c.cyan("export sarif"),
-                    c.dim("Export report (sarif/json)"),
-                );
-                eprintln!(
-                    "    {}          {}",
-                    c.cyan("langs"),
-                    c.dim("Language breakdown"),
-                );
-                eprintln!(
-                    "    {}       {}",
-                    c.cyan("summary"),
-                    c.dim("Re-show dashboard"),
-                );
-                eprintln!("    {}       {}", c.cyan("q / exit"), c.dim("Quit"),);
+                print_repl_help(c);
             }
 
             _ => {
@@ -837,7 +1052,7 @@ fn interactive_repl(
     let _ = path; // suppress unused warning
 }
 
-fn print_finding(c: &C, idx: usize, f: &Finding) {
+pub(crate) fn print_finding(c: &C, idx: usize, f: &Finding) {
     let conf_tag = match f.confidence {
         Confidence::Certain => c.green("CERTAIN"),
         Confidence::High => c.yellow("HIGH   "),
@@ -846,6 +1061,8 @@ fn print_finding(c: &C, idx: usize, f: &Finding) {
     };
     let kind = if f.rule_id.starts_with("CLONE") {
         c.cyan("clone")
+    } else if f.rule_id.starts_with("SCAFFOLD") {
+        c.magenta("scaffold")
     } else {
         c.yellow("dead")
     };
@@ -956,6 +1173,46 @@ fn run_machine_output(
                 ))
                 .with_related_locations(related);
                 all_findings.push(finding);
+            }
+        }
+    }
+
+    // Run scaffolding detection
+    {
+        let mut args = std::collections::HashMap::new();
+        args.insert(
+            "path".to_string(),
+            serde_json::Value::String(path.to_string_lossy().to_string()),
+        );
+        args.insert(
+            "include_placeholders".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        args.insert(
+            "include_phased_comments".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        args.insert(
+            "include_temp_files".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        args.insert(
+            "limit".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(10000)),
+        );
+
+        if let Ok(result) = crate::mcp::tools::scaffolding::execute_detect_scaffolding(&args) {
+            if let Some(parsed) = result
+                .pointer("/content/0/text")
+                .and_then(|v| v.as_str())
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+            {
+                let json_findings = parsed
+                    .get("findings")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                all_findings.extend(scaffolding_json_to_findings(&json_findings));
             }
         }
     }

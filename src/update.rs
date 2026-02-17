@@ -25,7 +25,7 @@ pub(crate) fn fossil_config_dir() -> Option<PathBuf> {
     Some(dir)
 }
 
-fn now_epoch() -> u64 {
+pub(crate) fn now_epoch() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

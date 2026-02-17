@@ -2,12 +2,13 @@ pub mod check;
 pub mod clones;
 pub mod dead_code;
 pub mod rules;
+pub mod scaffolding;
 pub mod scan;
 pub mod update;
 pub mod weekly;
 pub mod weekly_cache;
 
-use crate::core::{Finding, Severity, SourceLocation};
+use crate::core::{Confidence, Finding, Severity, SourceLocation};
 use crate::output::{create_formatter, OutputFormat};
 
 /// Parse output format string into OutputFormat enum.
@@ -49,6 +50,52 @@ pub fn parse_confidence(s: &str) -> crate::core::Confidence {
         "medium" => crate::core::Confidence::Medium,
         _ => crate::core::Confidence::Low,
     }
+}
+
+/// Convert scaffolding JSON findings to `Finding` objects.
+pub fn scaffolding_json_to_findings(json_findings: &[serde_json::Value]) -> Vec<Finding> {
+    json_findings
+        .iter()
+        .filter_map(|f| {
+            let file = f
+                .get("file")
+                .and_then(|v| v.as_str())
+                .or_else(|| f.get("path").and_then(|v| v.as_str()))?;
+            let line = f.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            let category = f
+                .get("category")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let match_text = f
+                .get("match_text")
+                .and_then(|v| v.as_str())
+                .or_else(|| f.get("name").and_then(|v| v.as_str()))
+                .unwrap_or("");
+            let confidence_str = f
+                .get("confidence")
+                .and_then(|v| v.as_str())
+                .unwrap_or("low");
+
+            let confidence = match confidence_str {
+                "certain" => Confidence::Certain,
+                "high" => Confidence::High,
+                "medium" => Confidence::Medium,
+                _ => Confidence::Low,
+            };
+
+            let location = SourceLocation::new(file.to_string(), line, line, 0, 0);
+            Some(
+                Finding::new(
+                    format!("SCAFFOLD-{category}"),
+                    match_text.to_string(),
+                    Severity::Info,
+                    location,
+                )
+                .with_confidence(confidence)
+                .with_description(format!("Scaffolding: {}", category.replace('_', " "))),
+            )
+        })
+        .collect()
 }
 
 /// Convert dead code findings to crate::core::Finding for output.
