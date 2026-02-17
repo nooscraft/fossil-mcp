@@ -627,19 +627,27 @@ fn interactive_repl(
     _nodes_analyzed: usize,
     path: &Path,
 ) {
-    // Pre-sort findings by category for exploration
-    let dead: Vec<&Finding> = all_findings
+    // Pre-sort findings by category, then by confidence (desc) + severity (desc)
+    let sort_fn = |a: &&Finding, b: &&Finding| {
+        b.confidence
+            .cmp(&a.confidence)
+            .then_with(|| b.severity.cmp(&a.severity))
+    };
+    let mut dead: Vec<&Finding> = all_findings
         .iter()
         .filter(|f| !f.rule_id.starts_with("CLONE") && !f.rule_id.starts_with("SCAFFOLD"))
         .collect();
-    let clones: Vec<&Finding> = all_findings
+    dead.sort_by(sort_fn);
+    let mut clones: Vec<&Finding> = all_findings
         .iter()
         .filter(|f| f.rule_id.starts_with("CLONE"))
         .collect();
-    let scaffolding: Vec<&Finding> = all_findings
+    clones.sort_by(sort_fn);
+    let mut scaffolding: Vec<&Finding> = all_findings
         .iter()
         .filter(|f| f.rule_id.starts_with("SCAFFOLD"))
         .collect();
+    scaffolding.sort_by(sort_fn);
 
     // File hotspot data
     let mut by_file: HashMap<&str, usize> = HashMap::new();
@@ -711,8 +719,8 @@ fn interactive_repl(
                         lang_filter
                             .as_ref()
                             .map(|l| format!(
-                                " for {:?}",
-                                l.iter().map(|x| x.name()).collect::<Vec<_>>()
+                                " for {}",
+                                l.iter().map(|x| x.name()).collect::<Vec<_>>().join(", ")
                             ))
                             .unwrap_or_default()
                     );
@@ -767,8 +775,8 @@ fn interactive_repl(
                         lang_filter
                             .as_ref()
                             .map(|l| format!(
-                                " for {:?}",
-                                l.iter().map(|x| x.name()).collect::<Vec<_>>()
+                                " for {}",
+                                l.iter().map(|x| x.name()).collect::<Vec<_>>().join(", ")
                             ))
                             .unwrap_or_default()
                     );

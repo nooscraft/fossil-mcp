@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Dashboard with dead code, clone, and scaffolding counts, language breakdown, confidence distribution, and file hotspots
   - REPL commands: `dead [N] [lang]`, `clones [N] [lang]`, `scaffolding [N] [lang]`, `hotspots [N] [lang]`, `file <path>`, `export sarif`, `langs`, `summary`
   - Language filtering on all exploration commands (e.g., `dead 20 rust`, `clones 5 python`)
-  - Color-coded legend: red for dead code, magenta for clones, magenta for scaffolding
+  - Color-coded legend: yellow for dead code, cyan for clones, magenta for scaffolding
 
 - **`fossil-mcp scaffolding` CLI command**: Standalone scaffolding detection subcommand (like `dead-code` and `clones`)
   - Supports `--language` filtering, `--include-todos`, `--format` (text/json/sarif), `--quiet`
