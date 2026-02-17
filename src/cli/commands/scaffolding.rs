@@ -75,12 +75,16 @@ pub fn run(
     // Apply language filter
     if let Some(lang_str) = language {
         let (langs, invalid) = Language::parse_list(lang_str);
-        if !invalid.is_empty() && !quiet {
-            eprintln!(
-                "  {} Unknown language(s): {}",
-                c.yellow("⚠"),
-                invalid.join(", ")
-            );
+        if !invalid.is_empty() {
+            return Err(crate::core::Error::analysis(format!(
+                "Invalid language(s): {}. Valid options: {}",
+                invalid.join(", "),
+                Language::all()
+                    .iter()
+                    .map(|l| l.name())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
         }
         if !langs.is_empty() {
             findings.retain(|f| {
