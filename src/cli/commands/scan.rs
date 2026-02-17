@@ -418,7 +418,7 @@ pub(crate) fn print_dashboard(
             if let Some(lang) = Language::from_path(std::path::Path::new(&f.location.file)) {
                 if f.rule_id.starts_with("CLONE") {
                     *lang_clone.entry(lang).or_default() += 1;
-                } else {
+                } else if !f.rule_id.starts_with("SCAFFOLD") {
                     *lang_dead.entry(lang).or_default() += 1;
                 }
             }
@@ -627,7 +627,7 @@ fn interactive_repl(
     _nodes_analyzed: usize,
     path: &Path,
 ) {
-    // Pre-sort findings by category, then by confidence (desc) + severity (desc)
+    // Partition findings by category, each sorted by confidence (desc) + severity (desc)
     let sort_fn = |a: &&Finding, b: &&Finding| {
         b.confidence
             .cmp(&a.confidence)
@@ -1173,6 +1173,46 @@ fn run_machine_output(
                 ))
                 .with_related_locations(related);
                 all_findings.push(finding);
+            }
+        }
+    }
+
+    // Run scaffolding detection
+    {
+        let mut args = std::collections::HashMap::new();
+        args.insert(
+            "path".to_string(),
+            serde_json::Value::String(path.to_string_lossy().to_string()),
+        );
+        args.insert(
+            "include_placeholders".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        args.insert(
+            "include_phased_comments".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        args.insert(
+            "include_temp_files".to_string(),
+            serde_json::Value::Bool(true),
+        );
+        args.insert(
+            "limit".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(10000)),
+        );
+
+        if let Ok(result) = crate::mcp::tools::scaffolding::execute_detect_scaffolding(&args) {
+            if let Some(parsed) = result
+                .pointer("/content/0/text")
+                .and_then(|v| v.as_str())
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+            {
+                let json_findings = parsed
+                    .get("findings")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                all_findings.extend(scaffolding_json_to_findings(&json_findings));
             }
         }
     }

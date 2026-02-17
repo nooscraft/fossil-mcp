@@ -368,12 +368,12 @@ enum RulesAction {
 
 /// No-args terminal mode — same as `fossil-mcp scan .`
 pub fn run_scan_default() {
-    // Initialize tracing (errors only)
-    tracing_subscriber::fmt()
+    // Initialize tracing (errors only); ignore if already set
+    let _ = tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::new("error"))
         .with_target(false)
         .with_writer(std::io::stderr)
-        .init();
+        .try_init();
 
     print_banner();
 
