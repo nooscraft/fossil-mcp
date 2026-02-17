@@ -390,36 +390,6 @@ fn extract_functions_from_source(source: &str) -> Vec<(String, usize, usize, Str
     functions
 }
 
-/// Find a tree-sitter node that starts at or near the given 1-indexed line.
-///
-/// Walks the tree looking for function/method definition nodes whose start
-/// line matches `target_line`. Returns the first match found via DFS.
-///
-/// Currently unused but kept for future tree-sitter-based enhancements.
-#[allow(dead_code)]
-fn find_node_at_line<'a>(
-    node: tree_sitter::Node<'a>,
-    target_line: usize,
-    _source: &str,
-) -> Option<tree_sitter::Node<'a>> {
-    // tree-sitter uses 0-indexed lines; target_line is 1-indexed
-    let target_row = target_line.saturating_sub(1);
-
-    // Check if this node starts at the target line
-    if node.start_position().row == target_row {
-        return Some(node);
-    }
-
-    // Recurse into children
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if let Some(found) = find_node_at_line(child, target_line, _source) {
-            return Some(found);
-        }
-    }
-    None
-}
-
 /// Find the end of a function starting at `start_idx` using indentation/brace heuristics.
 fn find_function_end(lines: &[&str], start_idx: usize) -> usize {
     let start_line = lines[start_idx];
@@ -957,13 +927,5 @@ function formatDataSize(numBytes) {
         assert_eq!(result.files_analyzed, 2);
         // Classes should be <= groups (clustering merges overlapping groups)
         assert!(classes.len() <= result.groups.len() || result.groups.is_empty());
-    }
-
-    #[test]
-    fn test_find_node_at_line_compiles() {
-        // Verify the helper function exists by referencing it.
-        // Full functional testing requires a tree-sitter parser which is
-        // not easily available in a unit test without grammar setup.
-        assert!(std::mem::size_of_val(&(find_node_at_line as fn(_, _, _) -> _)) > 0);
     }
 }

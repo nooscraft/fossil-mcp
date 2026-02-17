@@ -255,7 +255,7 @@ Once connected, your AI agent has access to these tools:
 
 | Tool | Description |
 |------|-------------|
-| `scan_all` | Run all analyses (dead code + clones) on a project |
+| `scan_all` | Run all analyses (dead code + clones + scaffolding) on a project |
 | `analyze_dead_code` | Detect unreachable code with configurable confidence |
 | `detect_clones` | Find duplicated code (Type 1/2/3 clones) |
 | `fossil_refresh` | Incremental re-analysis after file changes (fast) |
@@ -268,48 +268,187 @@ Once connected, your AI agent has access to these tools:
 
 ## CLI Usage
 
+### Modes
+
+Fossil has four modes of operation:
+
+| Mode | How to invoke | What it does |
+|------|--------------|-------------|
+| **Interactive** | `fossil-mcp` (no args) | Runs full scan + opens interactive REPL to explore findings |
+| **CLI** | `fossil-mcp <command>` | Run a specific analysis command |
+| **MCP Server** | `fossil-mcp mcp` or piped stdin | JSON-RPC server for AI coding tools |
+| **CI/CD** | `fossil-mcp check` | Fail builds when thresholds exceeded |
+
+### Interactive Mode
+
+Running `fossil-mcp` with no arguments (or `fossil-mcp scan .`) scans the current directory for dead code, clones, and scaffolding, shows a dashboard, then drops into an interactive REPL:
+
+```
+  FOSSIL Scanning .
+  ────────────────────────────────────────────────
+   ✓  1200 nodes analyzed, 42 unreachable
+   ✓  380 files analyzed, 8 clone groups
+   ✓  3 scaffolding artifacts
+
+  ══════════════════════════════════════════════════
+  RESULTS  53  findings across 28 files
+  ══════════════════════════════════════════════════
+
+  ▐ Dead Code     42   ██████████████░░
+  ▐ Clones         8   ██░░░░░░░░░░░░░░    120 duplicated lines
+  ▐ Scaffolding    3   █░░░░░░░░░░░░░░░
+
+  fossil>
+```
+
+#### REPL Commands
+
+All exploration commands support optional count and language filter: `command [N] [lang]`
+
+```
+fossil> dead 10                  # Top 10 dead code findings
+fossil> dead 20 typescript       # Top 20 dead code in TypeScript
+fossil> clones 5 rust            # Top 5 clone groups in Rust
+fossil> scaffolding              # All scaffolding findings
+fossil> scaffolding 10 python    # Top 10 scaffolding in Python
+fossil> hotspots                 # Files with most findings
+fossil> hotspots 10 go           # Top 10 hotspot files in Go
+fossil> file auth.ts             # All findings in a specific file
+fossil> langs                    # Language breakdown
+fossil> export sarif             # Export full SARIF report
+fossil> summary                  # Re-show dashboard
+fossil> q                        # Quit
+```
+
+### Commands
+
+#### `fossil-mcp scan [path]`
+
+Run all analyses (dead code + clones + scaffolding) with interactive dashboard.
+
 ```bash
-# Run all analyses on a project
-fossil-mcp scan /path/to/project
-
-# Dead code detection only
-fossil-mcp dead-code /path/to/project
-
-# Clone detection only
-fossil-mcp clones /path/to/project
-
-# Filter by confidence
-fossil-mcp dead-code /path/to/project --min-confidence high
-
-# Filter small functions
-fossil-mcp dead-code /path/to/project --min-lines 10
-
-# Output as SARIF (for IDE integration)
+fossil-mcp scan .
 fossil-mcp scan /path/to/project --format sarif -o results.sarif
-
-# Output as JSON
 fossil-mcp scan /path/to/project --format json
+```
 
-# Start MCP server explicitly
-fossil-mcp mcp
+#### `fossil-mcp dead-code [path]`
 
-# CI/CD check with configurable thresholds
+Dead code detection only.
+
+```bash
+fossil-mcp dead-code .
+fossil-mcp dead-code . --min-confidence high
+fossil-mcp dead-code . --min-lines 10
+fossil-mcp dead-code . --language rust,python
+fossil-mcp dead-code . --diff main                  # Only changed files
+fossil-mcp dead-code . --stats                      # Show graph statistics
+fossil-mcp dead-code . --cache-dir .fossil-cache     # Persistent cache
+fossil-mcp dead-code . --cache-stats                 # Cache hit rate
+```
+
+| Flag | Description |
+|------|-------------|
+| `--min-confidence <LEVEL>` | Filter by confidence: `low`, `medium`, `high`, `certain` |
+| `--min-lines <N>` | Minimum lines of code for a finding |
+| `--language <LANGS>` | Filter by language (comma-separated): `rust,python,go` |
+| `--include-tests` | Include test-only code in results |
+| `--diff <BRANCH>` | Only analyze files changed vs base branch |
+| `--stats` | Print graph cardinality estimates (HyperLogLog) |
+| `--cache-dir <PATH>` | Persistent cache directory for incremental analysis |
+| `--cache-stats` | Print cache hit rate and memory usage |
+
+#### `fossil-mcp clones [path]`
+
+Clone (duplicated code) detection only.
+
+```bash
+fossil-mcp clones .
+fossil-mcp clones . --min-lines 10
+fossil-mcp clones . --similarity 0.9
+fossil-mcp clones . --language typescript
+fossil-mcp clones . --types type1,type2
+```
+
+| Flag | Description |
+|------|-------------|
+| `--min-lines <N>` | Minimum lines for a clone (default: 6) |
+| `--similarity <F>` | Similarity threshold 0.0–1.0 for Type 3 clones (default: 0.8) |
+| `--types <TYPES>` | Clone types to detect: `type1,type2,type3` (default: all) |
+| `--language <LANGS>` | Filter by language (comma-separated) |
+
+#### `fossil-mcp scaffolding [path]`
+
+Detect AI-generated scaffolding artifacts.
+
+```bash
+fossil-mcp scaffolding .
+fossil-mcp scaffolding . --language rust
+fossil-mcp scaffolding . --include-todos
+fossil-mcp scaffolding . --format json
+```
+
+| Flag | Description |
+|------|-------------|
+| `--language <LANGS>` | Filter by language (comma-separated) |
+| `--include-todos` | Include TODO/FIXME/HACK markers (excluded by default) |
+
+Detects: placeholder bodies (`pass`, `todo!()`, `unimplemented!()`), phased comments (`Phase 1`, `Step 2`), scaffolding identifiers (`scaffold_*`, `boilerplate_*`), debug prints, and temp files (`temp_*`, `backup_*`, `old_*`).
+
+#### `fossil-mcp check [path]`
+
+CI/CD mode — fails builds when thresholds are exceeded. See [CI/CD Integration](#cicd-integration) for full details.
+
+```bash
+fossil-mcp check
 fossil-mcp check --max-dead-code 10 --max-clones 5
-
-# Diff-aware check (analyze only changed files)
+fossil-mcp check --diff origin/main
 fossil-mcp check --diff origin/main --format sarif
+fossil-mcp check --fail-on-scaffolding
 ```
 
-The CLI provides an interactive dashboard with language breakdown, confidence summary, and file hotspots. When running in a terminal, you get a REPL to explore findings interactively:
+| Flag | Description |
+|------|-------------|
+| `--max-dead-code <N>` | Maximum dead code findings allowed |
+| `--max-clones <N>` | Maximum clone findings allowed |
+| `--max-scaffolding <N>` | Maximum scaffolding findings allowed |
+| `--min-confidence <LEVEL>` | Minimum confidence for counting findings |
+| `--diff <BRANCH>` | Only check files changed vs base branch |
+| `--fail-on-scaffolding` | Fail if any scaffolding artifacts found |
 
+#### `fossil-mcp weekly`
+
+Show the weekly AI slop rankings across open-source projects.
+
+```bash
+fossil-mcp weekly
+fossil-mcp weekly --detailed
 ```
-fossil> dead 10        # Show top 10 dead code findings
-fossil> clones 5       # Show top 5 clone groups
-fossil> hotspots       # Show most affected files
-fossil> file auth.ts   # Show findings in a specific file
-fossil> langs          # Language breakdown
-fossil> export sarif   # Export full SARIF report
+
+#### `fossil-mcp update`
+
+Update fossil-mcp to the latest version.
+
+```bash
+fossil-mcp update
+fossil-mcp update --check    # Check without installing
 ```
+
+#### `fossil-mcp mcp`
+
+Start the MCP server explicitly (normally auto-detected via piped stdin).
+
+### Global Flags
+
+These flags work with all commands:
+
+| Flag | Description |
+|------|-------------|
+| `--format <FMT>` | Output format: `text`, `json`, `sarif` (default: text) |
+| `-o, --output <FILE>` | Write output to file instead of stdout |
+| `-q, --quiet` | Suppress all non-error output |
+| `-v, --verbose` | Enable debug logging |
+| `-c, --config <FILE>` | Path to config file |
 
 ---
 

@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-02-16
+
+### Added
+
+- **Interactive mode**: Running `fossil-mcp` with no arguments in a terminal now launches a full scan of the current directory with an interactive REPL for exploring results
+  - Dashboard with dead code, clone, and scaffolding counts, language breakdown, confidence distribution, and file hotspots
+  - REPL commands: `dead [N] [lang]`, `clones [N] [lang]`, `scaffolding [N] [lang]`, `hotspots [N] [lang]`, `file <path>`, `export sarif`, `langs`, `summary`
+  - Language filtering on all exploration commands (e.g., `dead 20 rust`, `clones 5 python`)
+  - Color-coded legend: red for dead code, magenta for clones, magenta for scaffolding
+
+- **`fossil-mcp scaffolding` CLI command**: Standalone scaffolding detection subcommand (like `dead-code` and `clones`)
+  - Supports `--language` filtering, `--include-todos`, `--format` (text/json/sarif), `--quiet`
+  - Groups results by category (placeholders, phased comments, temp files) with counts
+
+- **Shared `scaffolding_json_to_findings` converter**: Reusable function in `commands/mod.rs` converts scaffolding JSON output to standard `Finding` objects with `SCAFFOLD-{category}` rule IDs
+
+### Changed
+
+- **Smart entry point routing**: `fossil-mcp` (no args) detects terminal vs piped stdin — terminal launches interactive scan, piped stdin enters MCP mode (for AI tools)
+- Scaffolding findings fully integrated into scan dashboard and REPL as first-class `Finding` objects (previously only a count was shown)
+- Dashboard legend updated to include scaffolding alongside dead code and clones
+- Scan REPL help text auto-aligned with consistent column formatting
+- README comprehensively rewritten with all modes (Interactive, CLI, MCP Server, CI/CD), every command with full parameters, and REPL usage examples
+
+### Fixed
+
+- Eliminated duplicate `now_epoch()` function between `weekly_cache.rs` and `update.rs` (now shared via `pub(crate)` from `update.rs`)
+- Removed dead `find_node_at_line` function and its placeholder test from clone detector
+- Fixed clippy warning: redundant closure in scaffolding command error handling
+
+[0.1.5]: https://github.com/yfedoseev/fossil-mcp/compare/v0.1.4...v0.1.5
+
 ## [0.1.4] - 2026-02-15
 
 ### Added

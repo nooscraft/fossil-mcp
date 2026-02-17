@@ -1,7 +1,8 @@
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::update::now_epoch;
 
 const CACHE_TTL_SECS: u64 = 86400; // 24 hours
 const DEFAULT_WEEKLY_URL: &str = "https://fossil-mcp.com/data/weekly_slop.json";
@@ -18,13 +19,6 @@ struct WeeklyCache {
 
 fn cache_path() -> Option<PathBuf> {
     crate::update::fossil_config_dir().map(|d| d.join("weekly-cache.json"))
-}
-
-fn now_epoch() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
 }
 
 fn read_cache() -> Option<WeeklyCache> {

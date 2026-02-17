@@ -318,6 +318,22 @@ enum Commands {
         fail_on_scaffolding: bool,
     },
 
+    /// Detect AI scaffolding artifacts (placeholders, phased comments, temp files)
+    Scaffolding {
+        /// Path to analyze (defaults to current directory)
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Filter by programming language(s): rust, python, typescript, etc.
+        /// Use comma-separated list for multiple: rust,python,go
+        #[arg(long)]
+        language: Option<String>,
+
+        /// Include TODO/FIXME markers in results
+        #[arg(long)]
+        include_todos: bool,
+    },
+
     /// Manage security rules
     Rules {
         #[command(subcommand)]
@@ -348,6 +364,30 @@ enum RulesAction {
         /// Path to rules directory
         path: PathBuf,
     },
+}
+
+/// No-args terminal mode — same as `fossil-mcp scan .`
+pub fn run_scan_default() {
+    // Initialize tracing (errors only)
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::new("error"))
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .init();
+
+    print_banner();
+
+    let path = PathBuf::from(".");
+    let config =
+        crate::config::FossilConfig::discover(&path.canonicalize().unwrap_or(path.clone()));
+
+    match commands::scan::run(&path, &config, "text", false) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Error: {e}");
+            process::exit(1);
+        }
+    }
 }
 
 pub fn run() {
@@ -426,6 +466,18 @@ pub fn run() {
         ),
 
         Commands::Scan { path } => commands::scan::run(&path, &config, &cli.format, cli.quiet),
+
+        Commands::Scaffolding {
+            path,
+            language,
+            include_todos,
+        } => commands::scaffolding::run(
+            &path,
+            language.as_deref(),
+            include_todos,
+            &cli.format,
+            cli.quiet,
+        ),
 
         Commands::Check {
             path,
