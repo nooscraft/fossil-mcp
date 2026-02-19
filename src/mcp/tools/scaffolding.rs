@@ -133,8 +133,7 @@ const DELIVERY_FILE_SUFFIX_PATTERN: &str = r"(?i)_SUMMARY\.md$";
 const CLAUDE_FILE_PATTERN: &str = r"(?i)^CLAUDE.*\.md$";
 
 /// Delivery/sign-off/validation artifacts from AI project management.
-const DELIVERY_SIGNOFF_PATTERN: &str =
-    r"(?i)(DELIVERABLES|SIGN_OFF|VALIDATION_REPORT|CHECKLIST)";
+const DELIVERY_SIGNOFF_PATTERN: &str = r"(?i)(DELIVERABLES|SIGN_OFF|VALIDATION_REPORT|CHECKLIST)";
 
 /// Maps algorithm terms found in function names to keywords expected in the body.
 /// Language-aware algorithm expectation: per-language body keywords + import-based
@@ -164,7 +163,13 @@ const ALGORITHM_EXPECTATIONS: &[AlgorithmExpectation] = &[
             (GO_EXT, &["uuid.New", "uuid.Must"]),
         ],
         default_keywords: &["uuid", "random", "crypto", "generate"],
-        valid_imports: &["use uuid", "import uuid", "from uuid", "\"uuid\"", "google/uuid"],
+        valid_imports: &[
+            "use uuid",
+            "import uuid",
+            "from uuid",
+            "\"uuid\"",
+            "google/uuid",
+        ],
     },
     AlgorithmExpectation {
         term: "sha256",
@@ -308,8 +313,8 @@ fn file_has_valid_import(source: &str, patterns: &[&str]) -> bool {
 
 /// File extensions for brace-delimited languages (used for body line counting).
 const BRACE_LANGUAGES: &[&str] = &[
-    "rs", "js", "ts", "tsx", "jsx", "go", "java", "c", "cpp", "h", "hpp", "cs",
-    "swift", "kt", "scala", "php",
+    "rs", "js", "ts", "tsx", "jsx", "go", "java", "c", "cpp", "h", "hpp", "cs", "swift", "kt",
+    "scala", "php",
 ];
 
 // ---------------------------------------------------------------------------
@@ -555,8 +560,13 @@ fn walk_function_body<'a>(
     if BRACE_LANGUAGES.contains(&ext) {
         let mut found_brace = false;
         let mut depth: i32 = 0;
-        for i in function_line..max_scan {
-            let trimmed = source_lines[i].trim();
+        for (i, &src_line) in source_lines
+            .iter()
+            .enumerate()
+            .take(max_scan)
+            .skip(function_line)
+        {
+            let trimmed = src_line.trim();
             // Count braces outside of string literals.
             // `escaped` flag handles backslash escapes correctly: `\\` resets
             // the flag so the character after `\\` is NOT treated as escaped.
@@ -602,8 +612,7 @@ fn walk_function_body<'a>(
     } else if ext == "py" {
         let def_indent =
             source_lines[function_line].len() - source_lines[function_line].trim_start().len();
-        for i in (function_line + 1)..max_scan {
-            let line = source_lines[i];
+        for &line in source_lines.iter().take(max_scan).skip(function_line + 1) {
             if line.trim().is_empty() {
                 continue;
             }
@@ -626,10 +635,7 @@ fn count_function_body_lines(source_lines: &[&str], function_line: usize, ext: &
     walk_function_body(source_lines, function_line, ext, 200)
         .iter()
         .filter(|line| {
-            !line.is_empty()
-                && !is_comment_only(line, ext)
-                && **line != "{"
-                && **line != "}"
+            !line.is_empty() && !is_comment_only(line, ext) && **line != "{" && **line != "}"
         })
         .count()
 }
@@ -680,7 +686,12 @@ fn extract_param_names(line: &str) -> Vec<String> {
 }
 
 /// Get the concatenated body text of a function (for keyword scanning).
-fn get_function_body_text(source_lines: &[&str], function_line: usize, ext: &str, max_lines: usize) -> String {
+fn get_function_body_text(
+    source_lines: &[&str],
+    function_line: usize,
+    ext: &str,
+    max_lines: usize,
+) -> String {
     walk_function_body(source_lines, function_line, ext, max_lines).join("\n")
 }
 
@@ -688,10 +699,9 @@ fn get_function_body_text(source_lines: &[&str], function_line: usize, ext: &str
 fn is_doc_comment_line(trimmed: &str, ext: &str) -> bool {
     match ext {
         "rs" => trimmed.starts_with("///") || trimmed.starts_with("//!"),
-        "java" | "ts" | "tsx" | "js" | "jsx" | "go" | "c" | "cpp" | "h" | "hpp" | "cs" | "swift" | "kt" | "scala" | "php" => {
-            trimmed.starts_with("///")
-                || trimmed.starts_with("/**")
-                || trimmed.starts_with("* ")
+        "java" | "ts" | "tsx" | "js" | "jsx" | "go" | "c" | "cpp" | "h" | "hpp" | "cs"
+        | "swift" | "kt" | "scala" | "php" => {
+            trimmed.starts_with("///") || trimmed.starts_with("/**") || trimmed.starts_with("* ")
         }
         "py" | "rb" => trimmed.starts_with('#'),
         "lua" => trimmed.starts_with("--"),
@@ -753,8 +763,8 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
         Regex::new(PHASED_COMMENT_PATTERN).map_err(|e| format!("Regex error: {e}"))?;
     let re_impl_phase = Regex::new(r"(?i)\bimplementation:\s*(phase|step|part)\s*\d+")
         .map_err(|e| format!("Regex error: {e}"))?;
-    let re_step_progress = Regex::new(r"(?i)\bstep\s+\d+\s*/\s*\d+\s*:")
-        .map_err(|e| format!("Regex error: {e}"))?;
+    let re_step_progress =
+        Regex::new(r"(?i)\bstep\s+\d+\s*/\s*\d+\s*:").map_err(|e| format!("Regex error: {e}"))?;
 
     let placeholder_regexes: Vec<Regex> = PLACEHOLDER_PATTERNS
         .iter()
@@ -902,13 +912,17 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                     let doc_count = file_state.recent_doc_lines.len();
                     let body_count = count_function_body_lines(&source_lines, line_num_0, ext);
                     if body_count > 0 && doc_count > 3 * body_count {
-                        file_state.over_doc_findings.push((line_num, doc_count, body_count));
+                        file_state
+                            .over_doc_findings
+                            .push((line_num, doc_count, body_count));
                     }
                 }
 
                 // --- Rule: SLOP-IGNORED-PARAM (P2.9) ---
                 if !file_state.recent_doc_lines.is_empty() {
-                    let doc_text: String = file_state.recent_doc_lines.iter()
+                    let doc_text: String = file_state
+                        .recent_doc_lines
+                        .iter()
                         .map(|(_, text)| text.as_str())
                         .collect::<Vec<_>>()
                         .join(" ")
@@ -1218,7 +1232,9 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                 // Track recent doc comment lines for over-doc / ignored-param detection
                 let trimmed = line.trim();
                 if is_doc_comment_line(trimmed, ext) {
-                    file_state.recent_doc_lines.push((line_num, trimmed.to_string()));
+                    file_state
+                        .recent_doc_lines
+                        .push((line_num, trimmed.to_string()));
                 }
             } else {
                 // Non-comment line: flush any current comment block
@@ -1286,9 +1302,8 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
 
         // --- Post-scan: AI vocabulary density (B.3) ---
         if file_state.comment_line_count > 0 {
-            let density = (file_state.ai_vocab_count as f64
-                / file_state.comment_line_count as f64)
-                * 100.0;
+            let density =
+                (file_state.ai_vocab_count as f64 / file_state.comment_line_count as f64) * 100.0;
             if file_state.ai_vocab_count >= 5 && density >= 5.0 {
                 findings.push(json!({
                     "file": rel_path,
@@ -1446,11 +1461,7 @@ fn detect_temp_file_findings(root: &Path) -> Vec<Value> {
             Regex::new(DELIVERY_FILE_SUFFIX_PATTERN).unwrap(),
             "high",
         ),
-        (
-            "delivery",
-            Regex::new(CLAUDE_FILE_PATTERN).unwrap(),
-            "high",
-        ),
+        ("delivery", Regex::new(CLAUDE_FILE_PATTERN).unwrap(), "high"),
         (
             "delivery",
             Regex::new(DELIVERY_SIGNOFF_PATTERN).unwrap(),
@@ -1982,11 +1993,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         // Create delivery/summary files
         fs::write(dir.path().join("DELIVERY.md"), "# Delivery notes").unwrap();
-        fs::write(
-            dir.path().join("IMPLEMENTATION_PLAN.md"),
-            "# Plan",
-        )
-        .unwrap();
+        fs::write(dir.path().join("IMPLEMENTATION_PLAN.md"), "# Plan").unwrap();
         // Also create a normal file that should NOT be flagged
         fs::write(dir.path().join("README.md"), "# Project").unwrap();
 
@@ -2157,7 +2164,11 @@ mod tests {
         let mut f = fs::File::create(&file_path).unwrap();
         writeln!(f, "function a() {{ throw new Error(\"Name required\"); }}").unwrap();
         writeln!(f, "function b() {{ throw new Error(\"Email invalid\"); }}").unwrap();
-        writeln!(f, "function c() {{ throw new Error(\"Age out of range\"); }}").unwrap();
+        writeln!(
+            f,
+            "function c() {{ throw new Error(\"Age out of range\"); }}"
+        )
+        .unwrap();
 
         let parsed = run_scaffolding(&dir);
         let findings = parsed["findings"].as_array().unwrap();
@@ -2176,8 +2187,16 @@ mod tests {
         let file_path = dir.path().join("service.ts");
         let mut f = fs::File::create(&file_path).unwrap();
         // Create a file with high AI vocabulary density in comments
-        writeln!(f, "// This comprehensive module provides robust functionality").unwrap();
-        writeln!(f, "// It leverages elegant patterns to streamline operations").unwrap();
+        writeln!(
+            f,
+            "// This comprehensive module provides robust functionality"
+        )
+        .unwrap();
+        writeln!(
+            f,
+            "// It leverages elegant patterns to streamline operations"
+        )
+        .unwrap();
         writeln!(f, "// We utilize this to facilitate orchestration").unwrap();
         writeln!(f, "// The paradigm encapsulates the comprehensive approach").unwrap();
         writeln!(f, "function doWork() {{}}").unwrap();
@@ -2286,9 +2305,17 @@ mod tests {
         // Create a source file with verbose docs + AI vocab (use exact AI_VOCAB_PATTERN words)
         let file_path = dir.path().join("app.ts");
         let mut f = fs::File::create(&file_path).unwrap();
-        writeln!(f, "// This function handles comprehensive robust elegant work").unwrap();
+        writeln!(
+            f,
+            "// This function handles comprehensive robust elegant work"
+        )
+        .unwrap();
         writeln!(f, "// This method performs leverage and streamline tasks").unwrap();
-        writeln!(f, "// This class provides utilize facilitate orchestrate things").unwrap();
+        writeln!(
+            f,
+            "// This class provides utilize facilitate orchestrate things"
+        )
+        .unwrap();
         writeln!(f, "function main() {{}}").unwrap();
 
         let parsed = run_scaffolding(&dir);
@@ -2385,11 +2412,7 @@ mod tests {
             "Sign off",
         )
         .unwrap();
-        fs::write(
-            dir.path().join("PHASE4_VALIDATION_REPORT.md"),
-            "Report",
-        )
-        .unwrap();
+        fs::write(dir.path().join("PHASE4_VALIDATION_REPORT.md"), "Report").unwrap();
         fs::write(
             dir.path().join("PHASE4_INTEGRATION_CHECKLIST.md"),
             "Checklist",
@@ -2651,8 +2674,7 @@ mod tests {
         let clones: Vec<&Value> = findings
             .iter()
             .filter(|f| {
-                f["category"] == "comment_clone"
-                    && f["pattern"] == "cross_file_comment_clone"
+                f["category"] == "comment_clone" && f["pattern"] == "cross_file_comment_clone"
             })
             .collect();
 
@@ -2689,8 +2711,7 @@ mod tests {
         let cross_clones: Vec<&Value> = findings
             .iter()
             .filter(|f| {
-                f["category"] == "comment_clone"
-                    && f["pattern"] == "cross_file_comment_clone"
+                f["category"] == "comment_clone" && f["pattern"] == "cross_file_comment_clone"
             })
             .collect();
 
@@ -2991,7 +3012,7 @@ mod tests {
         let mut f = fs::File::create(&file_path).unwrap();
         // File imports uuid crate — function should NOT be flagged even without body keywords
         writeln!(f, "use uuid::Uuid;").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "fn make_uuid() -> String {{").unwrap();
         writeln!(f, "    let id = generate_id();").unwrap();
         writeln!(f, "    format!(\"prefix-{{}}\", id)").unwrap();
@@ -3015,7 +3036,7 @@ mod tests {
         let mut f = fs::File::create(&file_path).unwrap();
         // File imports hashlib — function should NOT be flagged
         writeln!(f, "import hashlib").unwrap();
-        writeln!(f, "").unwrap();
+        writeln!(f).unwrap();
         writeln!(f, "def compute_sha256(data):").unwrap();
         writeln!(f, "    return do_hash(data)").unwrap();
 
