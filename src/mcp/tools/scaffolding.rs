@@ -568,38 +568,42 @@ fn walk_function_body<'a>(
             .skip(function_line)
         {
             let trimmed = src_line.trim();
-            // Count braces outside of string literals.
-            // `escaped` flag handles backslash escapes correctly: `\\` resets
-            // the flag so the character after `\\` is NOT treated as escaped.
-            let mut in_single = false;
-            let mut in_double = false;
-            let mut in_backtick = false;
-            let mut escaped = false;
-            for ch in trimmed.chars() {
-                if escaped {
-                    escaped = false;
-                    continue;
-                }
-                if ch == '\\' && (in_single || in_double) {
-                    escaped = true;
-                    continue;
-                }
-                match ch {
-                    '\'' if !in_double && !in_backtick => in_single = !in_single,
-                    '"' if !in_single && !in_backtick => in_double = !in_double,
-                    '`' if !in_single && !in_double => in_backtick = !in_backtick,
-                    '{' if !in_single && !in_double && !in_backtick => {
-                        if !found_brace {
-                            found_brace = true;
+            // Skip brace counting on comment-only lines — `// }` or `/* { */`
+            // must not perturb the depth tracker.
+            if !is_comment_only(trimmed, ext) {
+                // Count braces outside of string literals.
+                // `escaped` flag handles backslash escapes correctly: `\\` resets
+                // the flag so the character after `\\` is NOT treated as escaped.
+                let mut in_single = false;
+                let mut in_double = false;
+                let mut in_backtick = false;
+                let mut escaped = false;
+                for ch in trimmed.chars() {
+                    if escaped {
+                        escaped = false;
+                        continue;
+                    }
+                    if ch == '\\' && (in_single || in_double) {
+                        escaped = true;
+                        continue;
+                    }
+                    match ch {
+                        '\'' if !in_double && !in_backtick => in_single = !in_single,
+                        '"' if !in_single && !in_backtick => in_double = !in_double,
+                        '`' if !in_single && !in_double => in_backtick = !in_backtick,
+                        '{' if !in_single && !in_double && !in_backtick => {
+                            if !found_brace {
+                                found_brace = true;
+                            }
+                            depth += 1;
                         }
-                        depth += 1;
+                        '}' if !in_single && !in_double && !in_backtick => {
+                            depth -= 1;
+                        }
+                        _ => {}
                     }
-                    '}' if !in_single && !in_double && !in_backtick => {
-                        depth -= 1;
-                    }
-                    _ => {}
                 }
-            }
+            } // end if !is_comment_only
             if found_brace {
                 // For one-line functions (brace opens and closes on function_line),
                 // include the line so body keyword scanning still works.
