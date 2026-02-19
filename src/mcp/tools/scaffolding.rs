@@ -129,7 +129,7 @@ const ERROR_STRING_PATTERN: &str = r#"(?:throw\s+new\s+\w*Error\s*\(\s*["']|rais
 const DELIVERY_FILE_PATTERN: &str =
     r"(?i)^(DELIVERY|IMPLEMENTATION_PLAN|PROGRESS|SESSION_|HANDOFF|OPTIMIZATION_PLAN)";
 const DELIVERY_FILE_SUFFIX_PATTERN: &str = r"(?i)_SUMMARY\.md$";
-/// Match CLAUDE*.md but not .claude/ directory contents.
+/// Match CLAUDE*.md files by filename (e.g. CLAUDE.md, CLAUDE_NOTES.md).
 const CLAUDE_FILE_PATTERN: &str = r"(?i)^CLAUDE.*\.md$";
 
 /// Delivery/sign-off/validation artifacts from AI project management.
@@ -168,6 +168,7 @@ const ALGORITHM_EXPECTATIONS: &[AlgorithmExpectation] = &[
             "import uuid",
             "from uuid",
             "\"uuid\"",
+            "'uuid'",
             "google/uuid",
         ],
     },
@@ -599,14 +600,18 @@ fn walk_function_body<'a>(
                     _ => {}
                 }
             }
-            if found_brace && i > function_line {
-                body_lines.push(trimmed);
-                if body_lines.len() >= max_lines {
+            if found_brace {
+                // For one-line functions (brace opens and closes on function_line),
+                // include the line so body keyword scanning still works.
+                if i > function_line || depth == 0 {
+                    body_lines.push(trimmed);
+                    if body_lines.len() >= max_lines {
+                        break;
+                    }
+                }
+                if depth == 0 {
                     break;
                 }
-            }
-            if found_brace && depth == 0 {
-                break;
             }
         }
     } else if ext == "py" {
@@ -839,17 +844,18 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                 continue;
             }
 
-            /// Helper function to check if a function has a placeholder body
-            fn has_placeholder_body(source_lines: &[&str], function_line: usize) -> bool {
-                // Scan next 10 lines for placeholder patterns
+            /// Helper function to check if a function has a placeholder body.
+            /// Uses the full set of compiled placeholder regexes for consistency
+            /// with the placeholder detection rule.
+            fn has_placeholder_body(
+                source_lines: &[&str],
+                function_line: usize,
+                placeholder_res: &[Regex],
+            ) -> bool {
                 let end = (function_line + 10).min(source_lines.len());
                 for line in &source_lines[function_line..end] {
                     let trimmed = line.trim();
-                    if trimmed == "pass"
-                        || trimmed == "..."
-                        || trimmed.contains("todo!()")
-                        || trimmed.contains("unimplemented!()")
-                    {
+                    if placeholder_res.iter().any(|re| re.is_match(trimmed)) {
                         return true;
                     }
                     // If we hit closing brace or semicolon at start of line, stop scanning
@@ -881,20 +887,22 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                         }
 
                         // For placeholder identifiers, check if function has real implementation (#26)
-                        let confidence =
-                            if category == "scaffold" && re_scaffold_ident.is_match(name) {
-                                if has_placeholder_body(&source_lines, line_num_0) {
-                                    "high"
-                                } else {
-                                    "low" // Has real implementation, probably legitimate API
-                                }
-                            } else if category == "phased" {
-                                // Phase N in identifiers is very likely domain-related (phase_count, phase1_latency)
-                                // Lower confidence significantly (#24)
-                                "low"
-                            } else {
+                        let confidence = if category == "scaffold"
+                            && re_scaffold_ident.is_match(name)
+                        {
+                            if has_placeholder_body(&source_lines, line_num_0, &placeholder_regexes)
+                            {
                                 "high"
-                            };
+                            } else {
+                                "low" // Has real implementation, probably legitimate API
+                            }
+                        } else if category == "phased" {
+                            // Phase N in identifiers is very likely domain-related (phase_count, phase1_latency)
+                            // Lower confidence significantly (#24)
+                            "low"
+                        } else {
+                            "high"
+                        };
 
                         findings.push(json!({
                             "file": rel_path,
@@ -951,7 +959,7 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                 }
 
                 // --- Rule: SLOP-MISLEADING-NAME (P3.11) ---
-                if !has_placeholder_body(&source_lines, line_num_0) {
+                if !has_placeholder_body(&source_lines, line_num_0, &placeholder_regexes) {
                     let name_lower = name.to_lowercase();
                     let mut body_cache: Option<String> = None;
                     for expectation in ALGORITHM_EXPECTATIONS {
