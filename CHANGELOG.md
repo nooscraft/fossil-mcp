@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-02-18
+
+### Added
+
+- **Language-aware misleading-name detection**: SLOP-MISLEADING-NAME now uses per-language keyword maps (Rust, Python, JS/TS, Go) instead of a flat keyword list, reducing false positives on legitimate wrapper functions
+  - `AlgorithmExpectation` struct with language-specific body keywords for 12 algorithm terms (uuid, sha256, sha512, sha1, base64, md5, jwt, aes, encrypt, decrypt, regex, regexp)
+  - Import-based early-exit: files that import the correct library (e.g., `use uuid`, `import hashlib`) skip the check entirely
+  - Multi-term function names (e.g., `encrypt_base64`) now check all matching algorithm terms instead of stopping at the first
+
+- **Expanded scaffolding detection categories**
+  - Delivery/sign-off file detection (DELIVERABLES, SIGN_OFF, VALIDATION_REPORT, CHECKLIST files)
+  - Framework default/boilerplate detection (Create React App, CDK, Next.js scaffolding strings)
+  - Verbose doc comment detection (over-use of "This function does/performs/handles..." patterns)
+  - Identical error string detection (repeated identical error messages across functions)
+  - AI vocabulary density scoring (detects clusters of AI-typical words: comprehensive, robust, leverage, streamline, etc.)
+  - Comment clone detection (near-identical comment blocks within and across files using Jaccard similarity)
+  - Over-documented function detection (doc-to-body ratio exceeding 3:1)
+  - Documented ignored parameter detection (parameters prefixed with `_` but mentioned in doc comments)
+
+### Changed
+
+- MCP tool description updated to list all new detection categories
+- `walk_function_body` shared helper replaces duplicated brace-walking logic with string-literal-aware brace tracking (correctly handles escaped quotes)
+- Cross-file comment clone detection uses per-block-pair deduplication (file+line) instead of per-file-pair
+- Cross-file comment clone detection guarded with 2000-block cap to prevent O(n²) blowup on large monorepos
+- `is_doc_comment_line` no longer counts plain `//` comments as doc comments for C-family languages (only `///`, `/**`, `* `)
+- Over-documented ratio displays with float precision (e.g., `3.3:1` instead of `3:1`)
+- Step progress detection (F.2) now deduplicates against phased name lines
+
+[0.1.6]: https://github.com/yfedoseev/fossil-mcp/compare/v0.1.5...v0.1.6
+
 ## [0.1.5] - 2026-02-16
 
 ### Added
