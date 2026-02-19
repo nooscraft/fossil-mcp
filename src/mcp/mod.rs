@@ -379,7 +379,7 @@ impl McpServer {
                 },
                 {
                     "name": "fossil_detect_scaffolding",
-                    "description": "Detect AI-generated scaffolding artifacts in source code: phased/temporal function names, phased comments (Phase N/Step N/Part N), TODO/FIXME markers, placeholder method bodies, debug prints",
+                    "description": "Detect AI-generated scaffolding artifacts in source code: phased/temporal function names, phased comments (Phase N/Step N/Part N), TODO/FIXME markers, placeholder method bodies, debug prints, delivery/summary files, framework defaults, verbose doc comments, identical error strings, AI vocabulary density, comment clones, over-documented functions, documented ignored parameters, misleading algorithm names",
                     "annotations": annotations,
                     "inputSchema": {
                         "type": "object",
