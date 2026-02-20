@@ -172,14 +172,14 @@ fn is_emoji(c: char) -> bool {
 fn find_emojis_in_line(line: &str) -> Vec<(char, usize)> {
     let mut emojis = Vec::new();
     let mut byte_pos = 0;
-    
+
     for ch in line.chars() {
         if is_emoji(ch) {
             emojis.push((ch, byte_pos));
         }
         byte_pos += ch.len_utf8();
     }
-    
+
     emojis
 }
 
@@ -3186,14 +3186,14 @@ mod tests {
         assert!(is_emoji('😃'));
         assert!(is_emoji('😊'));
         assert!(is_emoji('🤔'));
-        
+
         // Symbols
         assert!(is_emoji('🚀'));
         assert!(is_emoji('✨'));
         assert!(is_emoji('🔥'));
         assert!(is_emoji('💡'));
         assert!(is_emoji('🎉'));
-        
+
         // Not emojis
         assert!(!is_emoji('a'));
         assert!(!is_emoji('A'));
