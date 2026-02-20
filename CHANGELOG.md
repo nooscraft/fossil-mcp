@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-02-19
+
+### Added
+
+- **Emoji detection in scaffolding scanner** — contributed by [@nooscraft](https://github.com/nooscraft) in [#35](https://github.com/yfedoseev/fossil-mcp/pull/35) (our first community contribution!)
+  - New `include_emojis` parameter (default: false) for `fossil_detect_scaffolding`
+  - Detects emoji characters in comments, strings, and code across all 16 supported languages
+  - Covers major Unicode emoji ranges: emoticons, symbols, pictographs, transport, flags, dingbats
+  - Medium confidence findings — suitable for pre-commit hooks, CI quality gates, and code review cleanup
+  - 5 new tests (unit + integration) covering single/multiple emojis, disabled-by-default behavior
+
+### Contributors
+
+Thank you to [@nooscraft](https://github.com/nooscraft) for the first external contribution to Fossil!
+
+[0.1.7]: https://github.com/yfedoseev/fossil-mcp/compare/v0.1.6...v0.1.7
+
 ## [0.1.6] - 2026-02-18
 
 ### Added
