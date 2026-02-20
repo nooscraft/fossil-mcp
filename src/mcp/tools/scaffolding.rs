@@ -135,6 +135,54 @@ const CLAUDE_FILE_PATTERN: &str = r"(?i)^CLAUDE.*\.md$";
 /// Delivery/sign-off/validation artifacts from AI project management.
 const DELIVERY_SIGNOFF_PATTERN: &str = r"(?i)(DELIVERABLES|SIGN_OFF|VALIDATION_REPORT|CHECKLIST)";
 
+// ---------------------------------------------------------------------------
+// Emoji detection
+// ---------------------------------------------------------------------------
+
+/// Check if a character is an emoji.
+/// Covers the most common emoji ranges in Unicode:
+/// - Emoticons: U+1F600..U+1F64F
+/// - Miscellaneous Symbols and Pictographs: U+1F300..U+1F5FF
+/// - Transport and Map Symbols: U+1F680..U+1F6FF
+/// - Supplemental Symbols and Pictographs: U+1F900..U+1F9FF
+/// - Symbols and Pictographs Extended-A: U+1FA70..U+1FAFF
+/// - Miscellaneous Symbols: U+2600..U+26FF
+/// - Dingbats: U+2700..U+27BF
+/// - Enclosed characters: U+24C2, U+1F170..U+1F251
+/// - Regional indicators (flags): U+1F1E6..U+1F1FF
+/// - Keycap symbols: U+20E3
+/// - Variation selectors: U+FE0F (used with emoji)
+fn is_emoji(c: char) -> bool {
+    matches!(c,
+        '\u{1F600}'..='\u{1F64F}' |  // Emoticons
+        '\u{1F300}'..='\u{1F5FF}' |  // Misc Symbols and Pictographs
+        '\u{1F680}'..='\u{1F6FF}' |  // Transport and Map
+        '\u{1F900}'..='\u{1F9FF}' |  // Supplemental Symbols and Pictographs
+        '\u{1FA70}'..='\u{1FAFF}' |  // Symbols Extended-A
+        '\u{2600}'..='\u{26FF}'  |   // Misc symbols
+        '\u{2700}'..='\u{27BF}'  |   // Dingbats
+        '\u{1F1E6}'..='\u{1F1FF}' |  // Regional indicators (flags)
+        '\u{1F170}'..='\u{1F251}' |  // Enclosed characters
+        '\u{24C2}' | '\u{FE0F}' | '\u{20E3}'  // Special emoji-related chars
+    )
+}
+
+/// Find all emoji occurrences in a line of source code.
+/// Returns a vector of (emoji_char, byte_position) tuples.
+fn find_emojis_in_line(line: &str) -> Vec<(char, usize)> {
+    let mut emojis = Vec::new();
+    let mut byte_pos = 0;
+    
+    for ch in line.chars() {
+        if is_emoji(ch) {
+            emojis.push((ch, byte_pos));
+        }
+        byte_pos += ch.len_utf8();
+    }
+    
+    emojis
+}
+
 /// Maps algorithm terms found in function names to keywords expected in the body.
 /// Language-aware algorithm expectation: per-language body keywords + import-based
 /// early-exit to reduce false positives on legitimate wrapper functions.
@@ -728,6 +776,7 @@ fn is_doc_comment_line(trimmed: &str, ext: &str) -> bool {
 /// - `path` (string, required): Path to the project directory.
 /// - `include_todos` (bool, optional): Include TODO/FIXME markers (default: false).
 /// - `include_placeholders` (bool, optional): Include placeholder bodies (default: true).
+/// - `include_emojis` (bool, optional): Include emoji characters (default: false).
 pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value, String> {
     let path = args
         .get("path")
@@ -758,6 +807,11 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
         .get("include_temp_files")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
+
+    let include_emojis = args
+        .get("include_emojis")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     // Compile regexes.
     let re_phased = Regex::new(PHASED_PATTERN).map_err(|e| format!("Regex error: {e}"))?;
@@ -1109,6 +1163,21 @@ pub fn execute_detect_scaffolding(args: &HashMap<String, Value>) -> Result<Value
                         "confidence": "high",
                     }));
                     break;
+                }
+            }
+
+            // --- Emoji detection ---
+            if include_emojis {
+                let emojis = find_emojis_in_line(line);
+                for (emoji_char, _byte_pos) in emojis {
+                    findings.push(json!({
+                        "file": rel_path,
+                        "line": line_num,
+                        "category": "emoji",
+                        "match_text": emoji_char.to_string(),
+                        "pattern": "emoji",
+                        "confidence": "medium",
+                    }));
                 }
             }
 
@@ -3106,5 +3175,162 @@ mod tests {
             misleading
         );
         assert_eq!(misleading[0]["confidence"], "low");
+    }
+
+    // ---- Emoji detection tests ----
+
+    #[test]
+    fn test_is_emoji() {
+        // Emoticons
+        assert!(is_emoji('😀'));
+        assert!(is_emoji('😃'));
+        assert!(is_emoji('😊'));
+        assert!(is_emoji('🤔'));
+        
+        // Symbols
+        assert!(is_emoji('🚀'));
+        assert!(is_emoji('✨'));
+        assert!(is_emoji('🔥'));
+        assert!(is_emoji('💡'));
+        assert!(is_emoji('🎉'));
+        
+        // Not emojis
+        assert!(!is_emoji('a'));
+        assert!(!is_emoji('A'));
+        assert!(!is_emoji('1'));
+        assert!(!is_emoji('!'));
+        assert!(!is_emoji(' '));
+        assert!(!is_emoji('ñ'));
+        assert!(!is_emoji('中'));
+    }
+
+    #[test]
+    fn test_find_emojis_in_line() {
+        let line = "// This is a comment 🚀 with emoji";
+        let emojis = find_emojis_in_line(line);
+        assert_eq!(emojis.len(), 1);
+        assert_eq!(emojis[0].0, '🚀');
+
+        let line_multiple = "// TODO: Fix 🔥 this 💡 ASAP 🎉";
+        let emojis = find_emojis_in_line(line_multiple);
+        assert_eq!(emojis.len(), 3);
+        assert_eq!(emojis[0].0, '🔥');
+        assert_eq!(emojis[1].0, '💡');
+        assert_eq!(emojis[2].0, '🎉');
+
+        let line_no_emoji = "// Regular comment without emoji";
+        let emojis = find_emojis_in_line(line_no_emoji);
+        assert!(emojis.is_empty());
+    }
+
+    #[test]
+    fn integration_emoji_detection_in_comments() {
+        let dir = TempDir::new().unwrap();
+        let file_path = dir.path().join("main.rs");
+        let mut f = fs::File::create(&file_path).unwrap();
+        writeln!(f, "fn main() {{").unwrap();
+        writeln!(f, "    // This is awesome! 🚀").unwrap();
+        writeln!(f, "    let x = 1;").unwrap();
+        writeln!(f, "    // TODO: Fix this bug 🐛").unwrap();
+        writeln!(f, "}}").unwrap();
+
+        let mut args = HashMap::new();
+        args.insert(
+            "path".to_string(),
+            Value::String(dir.path().to_string_lossy().to_string()),
+        );
+        args.insert("include_emojis".to_string(), Value::Bool(true));
+        args.insert("include_todos".to_string(), Value::Bool(false));
+        args.insert("include_placeholders".to_string(), Value::Bool(false));
+        args.insert("include_phased_comments".to_string(), Value::Bool(false));
+        args.insert("include_temp_files".to_string(), Value::Bool(false));
+
+        let result = execute_detect_scaffolding(&args).unwrap();
+        let text = result["content"][0]["text"].as_str().unwrap();
+        let parsed: Value = serde_json::from_str(text).unwrap();
+
+        let findings = parsed["findings"].as_array().unwrap();
+        let emojis: Vec<&Value> = findings
+            .iter()
+            .filter(|f| f["category"] == "emoji")
+            .collect();
+
+        assert_eq!(emojis.len(), 2, "Should find 2 emojis");
+        assert_eq!(emojis[0]["line"], 2);
+        assert_eq!(emojis[0]["match_text"], "🚀");
+        assert_eq!(emojis[0]["confidence"], "medium");
+        assert_eq!(emojis[1]["line"], 4);
+        assert_eq!(emojis[1]["match_text"], "🐛");
+    }
+
+    #[test]
+    fn integration_emoji_detection_disabled_by_default() {
+        let dir = TempDir::new().unwrap();
+        let file_path = dir.path().join("main.rs");
+        let mut f = fs::File::create(&file_path).unwrap();
+        writeln!(f, "// Comment with emoji 🚀").unwrap();
+        writeln!(f, "fn main() {{}}").unwrap();
+
+        let mut args = HashMap::new();
+        args.insert(
+            "path".to_string(),
+            Value::String(dir.path().to_string_lossy().to_string()),
+        );
+        args.insert("include_todos".to_string(), Value::Bool(false));
+        args.insert("include_placeholders".to_string(), Value::Bool(false));
+        args.insert("include_phased_comments".to_string(), Value::Bool(false));
+        args.insert("include_temp_files".to_string(), Value::Bool(false));
+
+        let result = execute_detect_scaffolding(&args).unwrap();
+        let text = result["content"][0]["text"].as_str().unwrap();
+        let parsed: Value = serde_json::from_str(text).unwrap();
+
+        let findings = parsed["findings"].as_array().unwrap();
+        let emojis: Vec<&Value> = findings
+            .iter()
+            .filter(|f| f["category"] == "emoji")
+            .collect();
+
+        assert!(
+            emojis.is_empty(),
+            "Emoji detection should be disabled by default"
+        );
+    }
+
+    #[test]
+    fn integration_emoji_multiple_on_same_line() {
+        let dir = TempDir::new().unwrap();
+        let file_path = dir.path().join("app.ts");
+        let mut f = fs::File::create(&file_path).unwrap();
+        writeln!(f, "// 🚀 Launch feature 🎉 Celebrate 🔥 Hot").unwrap();
+
+        let mut args = HashMap::new();
+        args.insert(
+            "path".to_string(),
+            Value::String(dir.path().to_string_lossy().to_string()),
+        );
+        args.insert("include_emojis".to_string(), Value::Bool(true));
+        args.insert("include_todos".to_string(), Value::Bool(false));
+        args.insert("include_placeholders".to_string(), Value::Bool(false));
+        args.insert("include_phased_comments".to_string(), Value::Bool(false));
+        args.insert("include_temp_files".to_string(), Value::Bool(false));
+
+        let result = execute_detect_scaffolding(&args).unwrap();
+        let text = result["content"][0]["text"].as_str().unwrap();
+        let parsed: Value = serde_json::from_str(text).unwrap();
+
+        let findings = parsed["findings"].as_array().unwrap();
+        let emojis: Vec<&Value> = findings
+            .iter()
+            .filter(|f| f["category"] == "emoji")
+            .collect();
+
+        assert_eq!(emojis.len(), 3, "Should detect all 3 emojis on same line");
+        assert_eq!(emojis[0]["match_text"], "🚀");
+        assert_eq!(emojis[1]["match_text"], "🎉");
+        assert_eq!(emojis[2]["match_text"], "🔥");
+        assert_eq!(emojis[0]["line"], 1);
+        assert_eq!(emojis[1]["line"], 1);
+        assert_eq!(emojis[2]["line"], 1);
     }
 }
